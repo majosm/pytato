@@ -761,28 +761,40 @@ class Array(Taggable):
                 non_equality_tags=_get_created_at_tag(),
                 var_to_reduction_descr=immutabledict())
 
-    __mul__ = partialmethod(_binary_op, operator.mul)
-    __rmul__ = partialmethod(_binary_op, operator.mul, reverse=True)
+    # NOTE: Initializing the expression to "prim.Product(expr1, expr2)" is
+    # essential as opposed to performing "expr1 * expr2". This is to account
+    # for pymbolic's implementation of the "*" operator which might not
+    # instantiate the node corresponding to the operation when one of
+    # the operands is the neutral element of the operation.
+    #
+    # For the same reason 'prim.(Sum|FloorDiv|Quotient)' is preferred over the
+    # python operators on the operands.
 
-    __add__ = partialmethod(_binary_op, operator.add)
-    __radd__ = partialmethod(_binary_op, operator.add, reverse=True)
+    __mul__ = partialmethod(_binary_op, lambda x1, x2: prim.Product((x1, x2)))
+    __rmul__ = partialmethod(_binary_op, lambda x1, x2: prim.Product((x1, x2)),
+                             reverse=True)
 
-    __sub__ = partialmethod(_binary_op, operator.sub)
-    __rsub__ = partialmethod(_binary_op, operator.sub, reverse=True)
+    __add__ = partialmethod(_binary_op, lambda x1, x2: prim.Sum((x1, x2)))
+    __radd__ = partialmethod(_binary_op, lambda x1, x2: prim.Sum((x1, x2)),
+                             reverse=True)
 
-    __floordiv__ = partialmethod(_binary_op, operator.floordiv)
-    __rfloordiv__ = partialmethod(_binary_op, operator.floordiv, reverse=True)
+    __sub__ = partialmethod(_binary_op, lambda x1, x2: prim.Sum((x1, -x2)))
+    __rsub__ = partialmethod(_binary_op, lambda x1, x2: prim.Sum((x1, -x2)),
+                             reverse=True)
 
-    __truediv__ = partialmethod(_binary_op, operator.truediv,
+    __floordiv__ = partialmethod(_binary_op, prim.FloorDiv)
+    __rfloordiv__ = partialmethod(_binary_op, prim.FloorDiv, reverse=True)
+
+    __truediv__ = partialmethod(_binary_op, prim.Quotient,
             get_result_type=_truediv_result_type)
-    __rtruediv__ = partialmethod(_binary_op, operator.truediv,
+    __rtruediv__ = partialmethod(_binary_op, prim.Quotient,
             get_result_type=_truediv_result_type, reverse=True)
 
     __mod__ = partialmethod(_binary_op, operator.mod)
     __rmod__ = partialmethod(_binary_op, operator.mod, reverse=True)
 
-    __pow__ = partialmethod(_binary_op, operator.pow, is_pow=True)
-    __rpow__ = partialmethod(_binary_op, operator.pow, reverse=True, is_pow=True)
+    __pow__ = partialmethod(_binary_op, prim.Power, is_pow=True)
+    __rpow__ = partialmethod(_binary_op, prim.Power, reverse=True, is_pow=True)
 
     __neg__ = partialmethod(_unary_op, operator.neg)
 
