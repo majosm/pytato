@@ -107,6 +107,7 @@ def execute_distributed_partition(
 
     context: Dict[str, Any] = input_args.copy()
 
+    statuses = [MPI.Status() for _ in recv_requests]
     pids_to_execute = set(partition.parts)
     pids_executed = set()
     recv_names_completed = set()
@@ -158,7 +159,22 @@ def execute_distributed_partition(
         pids_to_execute.remove(part.pid)
 
     def wait_for_some_recvs() -> None:
-        complete_recv_indices = MPI.Request.Waitsome(recv_requests)
+        try:
+            complete_recv_indices = MPI.Request.Waitsome(
+                recv_requests, statuses=statuses)
+        except MPI.Exception as e:
+            if e.error_code == MPI.ERR_IN_STATUS:
+                for status in statuses:
+                    if (
+                            status.error != MPI.SUCCESS
+                            and status.error != MPI.ERR_PENDING):
+                        raise RuntimeError(
+                            f"receive on rank {mpi_communicator.rank} failed with "
+                            "the following error:\n"
+                            f"{MPI.Get_error_string(status.error)}")
+                raise AssertionError("failed to retrieve error from MPI statuses.")
+            else:
+                raise
 
         # Waitsome is allowed to return None
         if not complete_recv_indices:
@@ -169,6 +185,7 @@ def execute_distributed_partition(
             name = recv_names.pop(idx)
             recv_requests.pop(idx)
             buf = recv_buffers.pop(idx)
+            statuses.pop(idx)
 
             # FIXME: pytato shouldn't depend on pyopencl
             import pyopencl as cl
