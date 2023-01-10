@@ -41,9 +41,8 @@ THE SOFTWARE.
 
 from functools import reduce
 from typing import (
-        Sequence, Tuple, Any, Mapping, FrozenSet, Set, Dict, cast, Iterable,
-        Callable, List, AbstractSet, TypeVar, TYPE_CHECKING)
-from functools import cached_property
+        Sequence, Any, Mapping, FrozenSet, Set, Dict, cast,
+        List, AbstractSet, TypeVar, TYPE_CHECKING)
 
 import attrs
 from immutables import Map
@@ -52,14 +51,11 @@ from pytools.graph import CycleError
 
 from pymbolic.mapper.optimize import optimize_mapper
 from pytools import UniqueNameGenerator
-from pytools.tag import UniqueTag
 
 from pytato.scalar_expr import SCALAR_CLASSES
-from pytato.array import (Array,
-                          DictOfNamedArrays, Placeholder, make_placeholder,
-                          NamedArray)
-from pytato.transform import (ArrayOrNames, CopyMapper, Mapper,
-                              CachedWalkMapper, CopyMapperWithExtraArgs,
+from pytato.array import (Array, DictOfNamedArrays, Placeholder, make_placeholder)
+from pytato.transform import (ArrayOrNames, CopyMapper,
+                              CachedWalkMapper,
                               CombineMapper)
 from pytato.partition import GraphPart, GraphPartition, PartId
 from pytato.distributed.nodes import (
@@ -161,8 +157,11 @@ class _DistributedInputReplacer(CopyMapper):
                 name, expr.shape, expr.dtype, expr.tags,
                 expr.axes)
 
-    def map_distributed_send_ref_holder(self, expr: DistributedSendRefHolder) -> Array:
-        return self.rec(expr.passthrough_data)
+    def map_distributed_send_ref_holder(
+            self, expr: DistributedSendRefHolder) -> Array:
+        result = self.rec(expr.passthrough_data)
+        assert isinstance(result, Array)
+        return result
 
     # Note: map_distributed_send() is not called like other mapped methods in a
     # DAG traversal, since a DistributedSend is not an Array and has no
@@ -179,7 +178,7 @@ class _DistributedInputReplacer(CopyMapper):
         return new_send
 
     # type ignore because no args, kwargs
-    def rec(self, expr: Array) -> Any:  # type: ignore[override]
+    def rec(self, expr: ArrayOrNames) -> ArrayOrNames:  # type: ignore[override]
         key = self.get_cache_key(expr)
         try:
             return self._cache[key]
@@ -640,7 +639,7 @@ def find_distributed_partition(
     part_comm_ids: List[_PartCommIDs] = []
 
     if comm_batches:
-        recv_ids = frozenset()
+        recv_ids: FrozenSet[CommunicationOpIdentifier] = frozenset()
         for batch in comm_batches:
             send_ids = frozenset(
                 comm_id for comm_id in batch
