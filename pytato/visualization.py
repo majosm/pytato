@@ -363,7 +363,7 @@ def get_dot_graph_from_partition(partition: GraphPartition) -> str:
     r"""Return a string in the `dot <https://graphviz.org>`_ language depicting the
     graph of the partitioned computation of *partition*.
 
-    :arg partition: Outputs of :func:`~pytato.partition.find_partition`.
+    :arg partition: Outputs of :func:`~pytato.find_distributed_partition`.
     """
     # Maps each partition to a dict of its arrays with the node info
     part_id_to_node_info: Dict[Hashable, Dict[ArrayOrNames, DotNodeInfo]] = {}
@@ -397,7 +397,7 @@ def get_dot_graph_from_partition(partition: GraphPartition) -> str:
             if isinstance(part, DistributedGraphPart):
                 part_dist_recv_var_name_to_node_id = {}
                 for name, recv in (
-                        part.input_name_to_recv_node.items()):
+                        part.name_to_recv_node.items()):
                     node_id = id_gen("recv")
                     _emit_array(emit, "DistributedRecv", {
                         "shape": stringify_shape(recv.shape),
@@ -481,7 +481,7 @@ def get_dot_graph_from_partition(partition: GraphPartition) -> str:
                 deferred_send_edges = []
                 if isinstance(part, DistributedGraphPart):
                     for name, send in (
-                            part.output_name_to_send_node.items()):
+                            part.name_to_send_node.items()):
                         node_id = id_gen("send")
                         _emit_array(emit, "DistributedSend", {
                             "dest_rank": str(send.dest_rank),
@@ -516,7 +516,7 @@ def show_dot_graph(result: Union[str, Array, DictOfNamedArrays, GraphPartition],
 
     :arg result: Outputs of the computation (cf.
         :func:`pytato.generate_loopy`) or the output of :func:`get_dot_graph`,
-        or the output of :func:`~pytato.partition.find_partition`.
+        or the output of :func:`~pytato.find_distributed_partition`.
     :arg kwargs: Passed on to :func:`pytools.graphviz.show_dot` unmodified.
     """
     dot_code: str
