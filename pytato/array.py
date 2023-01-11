@@ -574,7 +574,7 @@ class Array(Taggable):
             indices = tuple(var(f"_{i}") for i in range(self.ndim))
             expr = op(var("_in0")[indices])
 
-        bindings = dict(_in0=self)
+        bindings = {"_in0": self}
         return IndexLambda(
                 expr,
                 shape=self.shape,
@@ -718,7 +718,7 @@ class _SuppliedShapeAndDtypeMixin:
 @attrs.define(frozen=True, eq=False, repr=False)
 class NamedArray(Array):
     """An entry in a :class:`AbstractResultWithNamedArrays`. Holds a reference
-    back to thecontaining instance as well as the name by which *self* is
+    back to the containing instance as well as the name by which *self* is
     known there.
 
     .. automethod:: __init__
@@ -2305,7 +2305,7 @@ def _compare(x1: ArrayOrScalar, x2: ArrayOrScalar, which: str) -> Union[Array, b
     # '_compare' returns a bool.
     return utils.broadcast_binary_op(x1, x2,
                                      lambda x, y: prim.Comparison(x, which, y),
-                                     lambda x, y: np.dtype(np.bool8)
+                                     lambda x, y: np.dtype(np.bool_)
                                      )  # type: ignore[return-value]
 
 
@@ -2365,7 +2365,7 @@ def logical_or(x1: ArrayOrScalar, x2: ArrayOrScalar) -> Union[Array, bool]:
     import pytato.utils as utils
     return utils.broadcast_binary_op(x1, x2,
                                      lambda x, y: prim.LogicalOr((x, y)),
-                                     lambda x, y: np.dtype(np.bool8)
+                                     lambda x, y: np.dtype(np.bool_)
                                      )  # type: ignore[return-value]
 
 
@@ -2379,7 +2379,7 @@ def logical_and(x1: ArrayOrScalar, x2: ArrayOrScalar) -> Union[Array, bool]:
     import pytato.utils as utils
     return utils.broadcast_binary_op(x1, x2,
                                      lambda x, y: prim.LogicalAnd((x, y)),
-                                     lambda x, y: np.dtype(np.bool8)
+                                     lambda x, y: np.dtype(np.bool_)
                                      )  # type: ignore[return-value]
 
 
@@ -2398,7 +2398,7 @@ def logical_not(x: ArrayOrScalar) -> Union[Array, bool]:
                                                           x.shape,
                                                           x.shape),
                        shape=x.shape,
-                       dtype=np.dtype(np.bool8),
+                       dtype=np.dtype(np.bool_),
                        bindings={"_in0": x},
                        tags=_get_default_tags(),
                        axes=_get_default_axes(len(x.shape)),

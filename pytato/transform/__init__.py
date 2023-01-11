@@ -30,7 +30,7 @@ import logging
 import numpy as np
 from abc import abstractmethod
 from typing import (Any, Callable, Dict, FrozenSet, Union, TypeVar, Set, Generic,
-                    List, Mapping, Iterable, Tuple, Optional, TYPE_CHECKING,
+                    List, Mapping, Iterable, Tuple, Optional,
                     Hashable)
 
 from pytato.array import (
@@ -41,14 +41,12 @@ from pytato.array import (
         BasicIndex, AdvancedIndexInContiguousAxes, AdvancedIndexInNoncontiguousAxes,
         IndexBase, DataInterface)
 
+from pytato.distributed.nodes import (
+        DistributedSendRefHolder, DistributedRecv, DistributedSend)
 from pytato.loopy import LoopyCall, LoopyCallResult
 from dataclasses import dataclass
 from pytato.tags import ImplStored
-from immutables import Map
 from pymbolic.mapper.optimize import optimize_mapper
-
-if TYPE_CHECKING:
-    from pytato.distributed import DistributedSendRefHolder, DistributedRecv
 
 ArrayOrNames = Union[Array, AbstractResultWithNamedArrays]
 MappedT = TypeVar("MappedT", bound=ArrayOrNames)
@@ -86,7 +84,6 @@ Dict representation of DAGs
 ---------------------------
 
 .. autoclass:: UsersCollector
-.. autofunction:: reverse_graph
 .. autofunction:: tag_user_nodes
 .. autofunction:: rec_get_user_nodes
 
@@ -340,7 +337,6 @@ class CopyMapper(CachedMapper[ArrayOrNames]):
 
     def map_distributed_send_ref_holder(
             self, expr: DistributedSendRefHolder) -> Array:
-        from pytato.distributed import DistributedSend, DistributedSendRefHolder
         return DistributedSendRefHolder(
                 DistributedSend(
                     data=self.rec(expr.send.data),
@@ -350,7 +346,6 @@ class CopyMapper(CachedMapper[ArrayOrNames]):
                 tags=expr.tags)
 
     def map_distributed_recv(self, expr: DistributedRecv) -> Array:
-        from pytato.distributed import DistributedRecv
         return DistributedRecv(
                src_rank=expr.src_rank, comm_tag=expr.comm_tag,
                shape=self.rec_idx_or_size_tuple(expr.shape),
@@ -535,7 +530,6 @@ class CopyMapperWithExtraArgs(CachedMapper[ArrayOrNames]):
 
     def map_distributed_send_ref_holder(self, expr: DistributedSendRefHolder,
                                         *args: Any, **kwargs: Any) -> Array:
-        from pytato.distributed import DistributedSend, DistributedSendRefHolder
         return DistributedSendRefHolder(
                 DistributedSend(
                     data=self.rec(expr.send.data, *args, **kwargs),
@@ -546,7 +540,6 @@ class CopyMapperWithExtraArgs(CachedMapper[ArrayOrNames]):
 
     def map_distributed_recv(self, expr: DistributedRecv,
                              *args: Any, **kwargs: Any) -> Array:
-        from pytato.distributed import DistributedRecv
         return DistributedRecv(
                src_rank=expr.src_rank, comm_tag=expr.comm_tag,
                shape=self.rec_idx_or_size_tuple(expr.shape, *args, **kwargs),
@@ -1210,8 +1203,6 @@ class MPMSMaterializer(Mapper):
     def map_distributed_send_ref_holder(self,
                                         expr: DistributedSendRefHolder
                                         ) -> MPMSMaterializerAccumulator:
-        from pytato.distributed import (DistributedSendRefHolder,
-                                        DistributedSend)
         rec_passthrough = self.rec(expr.passthrough_data)
         rec_send_data = self.rec(expr.send.data)
         new_expr = DistributedSendRefHolder(
@@ -1353,14 +1344,14 @@ class UsersCollector(CachedMapper[ArrayOrNames]):
 
     def __init__(self) -> None:
         super().__init__()
-        from pytato.distributed import DistributedSend
         self.node_to_users: Dict[ArrayOrNames,
                 Set[Union[DistributedSend, ArrayOrNames]]] = {}
 
-    def __call__(self, expr: ArrayOrNames, *args: Any, **kwargs: Any) -> Any:
+    # type-ignore-reason: incompatible with superclass (args/kwargs, return type)
+    def __call__(self, expr: ArrayOrNames) -> None:  # type: ignore[override]
         # Root node has no predecessor
         self.node_to_users[expr] = set()
-        return self.rec(expr, *args)
+        self.rec(expr)
 
     def rec_idx_or_size_tuple(
             self, expr: Array, situp: Tuple[IndexOrShapeExpr, ...]
@@ -1383,6 +1374,8 @@ class UsersCollector(CachedMapper[ArrayOrNames]):
         for arg in expr.args:
             self.node_to_users.setdefault(arg, set()).add(expr)
             self.rec(arg)
+
+        self.rec_idx_or_size_tuple(expr, expr.shape)
 
     def map_reshape(self, expr: Reshape) -> None:
         self.rec_idx_or_size_tuple(expr, expr.shape)
@@ -1408,8 +1401,7 @@ class UsersCollector(CachedMapper[ArrayOrNames]):
         self.rec(expr.array)
 
     def map_size_param(self, expr: SizeParam) -> None:
-        # no child nodes, nothing to do
-        pass
+        self.rec_idx_or_size_tuple(expr, expr.shape)
 
     def map_axis_permutation(self, expr: AxisPermutation) -> None:
         self.node_to_users.setdefault(expr.array, set()).add(expr)
@@ -1454,13 +1446,13 @@ class UsersCollector(CachedMapper[ArrayOrNames]):
                 self.rec(child)
 
     def map_distributed_send_ref_holder(
-            self, expr: DistributedSendRefHolder, *args: Any) -> None:
+            self, expr: DistributedSendRefHolder) -> None:
         self.node_to_users.setdefault(expr.passthrough_data, set()).add(expr)
         self.rec(expr.passthrough_data)
         self.node_to_users.setdefault(expr.send.data, set()).add(expr.send)
         self.rec(expr.send.data)
 
-    def map_distributed_recv(self, expr: DistributedRecv, *args: Any) -> None:
+    def map_distributed_recv(self, expr: DistributedRecv) -> None:
         self.rec_idx_or_size_tuple(expr, expr.shape)
 
 
@@ -1471,35 +1463,12 @@ def get_users(expr: ArrayOrNames) -> Dict[ArrayOrNames,
     """
     user_collector = UsersCollector()
     user_collector(expr)
-    return user_collector.node_to_users  # type: ignore
+    return user_collector.node_to_users  # type: ignore[return-value]
 
 # }}}
 
 
 # {{{ operations on graphs in dict form
-
-def reverse_graph(graph: Mapping[ArrayOrNames, FrozenSet[ArrayOrNames]]
-                  ) -> Map[ArrayOrNames, FrozenSet[ArrayOrNames]]:
-    """
-    Reverses a graph.
-
-    :param graph: A :class:`dict` representation of a directed graph, mapping each
-        node to other nodes to which it is connected by edges. A possible
-        use case for this function is the graph in
-        :attr:`UsersCollector.node_to_users`.
-    :returns: A :class:`immutables.Map` representing *graph* with edges reversed.
-    """
-    result: Dict[ArrayOrNames, Set[ArrayOrNames]] = {}
-
-    for node_key, edges in graph.items():
-        # Make sure every node is in the result even if it has no users
-        result.setdefault(node_key, set())
-
-        for other_node_key in edges:
-            result.setdefault(other_node_key, set()).add(node_key)
-
-    return Map({k: frozenset(v) for k, v in result.items()})
-
 
 def _recursively_get_all_users(
         direct_users: Mapping[ArrayOrNames, Set[ArrayOrNames]],
@@ -1723,7 +1692,6 @@ class EdgeCachedMapper(CachedMapper[ArrayOrNames]):
     def map_distributed_send_ref_holder(
             self, expr: DistributedSendRefHolder, *args: Any) -> \
                 DistributedSendRefHolder:
-        from pytato.distributed import DistributedSendRefHolder
         return DistributedSendRefHolder(
             send=self.handle_edge(expr, expr.send.data),
             passthrough_data=self.handle_edge(expr, expr.passthrough_data),
@@ -1732,7 +1700,6 @@ class EdgeCachedMapper(CachedMapper[ArrayOrNames]):
 
     def map_distributed_recv(self, expr: DistributedRecv, *args: Any) \
             -> Any:
-        from pytato.distributed import DistributedRecv
         return DistributedRecv(
             src_rank=expr.src_rank, comm_tag=expr.comm_tag,
             shape=self.rec_idx_or_size_tuple(expr, expr.shape, *args),

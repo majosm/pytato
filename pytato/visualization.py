@@ -47,10 +47,10 @@ from pytato.codegen import normalize_outputs
 from pytato.transform import CachedMapper, ArrayOrNames
 
 from pytato.partition import GraphPartition
-from pytato.distributed import DistributedGraphPart
+from pytato.distributed.partition import DistributedGraphPart
 
 if TYPE_CHECKING:
-    from pytato.distributed import DistributedSendRefHolder
+    from pytato.distributed.nodes import DistributedSendRefHolder
 
 
 __doc__ = """
@@ -94,10 +94,10 @@ class ArrayToDotNodeInfoMapper(CachedMapper[ArrayOrNames]):
 
     def get_common_dot_info(self, expr: Array) -> DotNodeInfo:
         title = type(expr).__name__
-        fields = dict(addr=hex(id(expr)),
-                shape=stringify_shape(expr.shape),
-                dtype=str(expr.dtype),
-                tags=stringify_tags(expr.tags))
+        fields = {"addr": hex(id(expr)),
+                "shape": stringify_shape(expr.shape),
+                "dtype": str(expr.dtype),
+                "tags": stringify_tags(expr.tags)}
 
         edges: Dict[str, ArrayOrNames] = {}
         return DotNodeInfo(title, fields, edges)
@@ -225,8 +225,7 @@ class ArrayToDotNodeInfoMapper(CachedMapper[ArrayOrNames]):
 
         self.nodes[expr] = DotNodeInfo(
                 title=type(expr).__name__,
-                fields=dict(addr=hex(id(expr)),
-                            entrypoint=expr.entrypoint),
+                fields={"addr": hex(id(expr)), "entrypoint": expr.entrypoint},
                 edges=edges)
 
     def map_distributed_send_ref_holder(
@@ -241,6 +240,8 @@ class ArrayToDotNodeInfoMapper(CachedMapper[ArrayOrNames]):
         info.edges["sent"] = expr.send.data
 
         info.fields["dest_rank"] = str(expr.send.dest_rank)
+
+        info.fields["comm_tag"] = str(expr.send.comm_tag)
 
         self.nodes[expr] = info
 
@@ -398,7 +399,7 @@ def get_dot_graph_from_partition(partition: GraphPartition) -> str:
                 for name, recv in (
                         part.input_name_to_recv_node.items()):
                     node_id = id_gen("recv")
-                    _emit_array(emit, "Recv", {
+                    _emit_array(emit, "DistributedRecv", {
                         "shape": stringify_shape(recv.shape),
                         "dtype": str(recv.dtype),
                         "src_rank": str(recv.src_rank),
@@ -482,7 +483,7 @@ def get_dot_graph_from_partition(partition: GraphPartition) -> str:
                     for name, send in (
                             part.output_name_to_send_node.items()):
                         node_id = id_gen("send")
-                        _emit_array(emit, "Send", {
+                        _emit_array(emit, "DistributedSend", {
                             "dest_rank": str(send.dest_rank),
                             "comm_tag": str(send.comm_tag),
                             }, node_id)
@@ -516,7 +517,7 @@ def show_dot_graph(result: Union[str, Array, DictOfNamedArrays, GraphPartition],
     :arg result: Outputs of the computation (cf.
         :func:`pytato.generate_loopy`) or the output of :func:`get_dot_graph`,
         or the output of :func:`~pytato.partition.find_partition`.
-    :arg kwargs: Passed on to :func:`pymbolic.imperative.utils.show_dot` unmodified.
+    :arg kwargs: Passed on to :func:`pytools.graphviz.show_dot` unmodified.
     """
     dot_code: str
 
@@ -527,7 +528,7 @@ def show_dot_graph(result: Union[str, Array, DictOfNamedArrays, GraphPartition],
     else:
         dot_code = get_dot_graph(result)
 
-    from pymbolic.imperative.utils import show_dot
+    from pytools.graphviz import show_dot
     show_dot(dot_code, **kwargs)
 
 
