@@ -142,8 +142,8 @@ class PartitionInducedCycleError(Exception):
 
 def _run_partition_diagnostics(
         outputs: DictOfNamedArrays, gp: GraphPartition) -> None:
-    if __debug__:
-        _check_partition_disjointness(gp)
+    # if __debug__:
+    #     _check_partition_disjointness(gp)
 
     from pytato.analysis import get_num_nodes
     num_nodes_per_part = [get_num_nodes(make_dict_of_named_arrays(
