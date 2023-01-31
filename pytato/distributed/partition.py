@@ -875,8 +875,8 @@ def find_distributed_partition(
     out_name_gen = UniqueNameGenerator(forced_prefix="_pt_out_")
 
     recvd_ary_to_name: Dict[Array, str] = {
-        recv: recv_name_gen()
-        for recv in received_arrays}
+        ary: recv_name_gen()
+        for ary in received_arrays}
 
     sent_ary_to_name: Dict[Array, str] = {
         ary: out_name_gen()
