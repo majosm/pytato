@@ -1732,6 +1732,23 @@ def test_rewrite_einsums_with_no_broadcasts(ctx_factory):
     np.testing.assert_allclose(ref_out, out)
 
 
+def test_no_redundant_stores_with_impl_stored(ctx_factory):
+    # See <https://github.com/inducer/pytato/issues/415>
+    ctx = ctx_factory()
+    cq = cl.CommandQueue(ctx)
+
+    rng = np.random.default_rng(0)
+    x_np = rng.random((10, 4))
+
+    x = pt.make_placeholder("x", (10, 4), np.float64)
+    y = 2*x
+    y = y.tagged(pt.tags.ImplStored())
+    prg = pt.generate_loopy(y)
+
+    assert len(prg.program.default_entrypoint.temporary_variables) == 0
+    np.testing.assert_allclose(prg(cq, x=x_np)[1][0], 2*x_np)
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         exec(sys.argv[1])
