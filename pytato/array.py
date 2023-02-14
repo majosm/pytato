@@ -2881,12 +2881,12 @@ def broadcast_to(array: Array, shape: ShapeType) -> Array:
                 and not are_shape_components_equal(in_dim, 1)):
             raise ValueError(f"Cannot broadcast '{array.shape}' into '{shape}'")
 
-    return IndexLambda(expr=prim.Subscript(prim.Variable("in"),
+    return IndexLambda(expr=prim.Subscript(prim.Variable("in_0"),
                                            get_indexing_expression(array.shape,
                                                                    shape)),
                        shape=shape,
                        dtype=array.dtype,
-                       bindings=immutabledict({"in": array}),
+                       bindings=immutabledict({"in_0": array}),
                        tags=_get_default_tags(),
                        non_equality_tags=_get_created_at_tag(),
                        axes=_get_default_axes(len(shape)),
