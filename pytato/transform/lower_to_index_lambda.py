@@ -290,7 +290,7 @@ class ToIndexLambdaMixin:
 
         vng = UniqueNameGenerator()
         indices = []
-        in_ary = vng("in")
+        in_ary = vng("in_0")
         bindings = {in_ary: self.rec(expr.array)}
         islice_idx = 0
 
@@ -299,7 +299,7 @@ class ToIndexLambdaMixin:
                 if isinstance(axis_len, INT_CLASSES):
                     indices.append(idx % axis_len)
                 else:
-                    bnd_name = vng("in")
+                    bnd_name = vng("in_0")
                     bindings[bnd_name] = self.rec(axis_len)
                     indices.append(idx % prim.Variable(bnd_name))
             elif isinstance(idx, NormalizedSlice):
@@ -308,7 +308,7 @@ class ToIndexLambdaMixin:
                 islice_idx += 1
             elif isinstance(idx, Array):
                 if isinstance(axis_len, INT_CLASSES):
-                    bnd_name = vng("in")
+                    bnd_name = vng("in_0")
                     bindings[bnd_name] = self.rec(idx)
                     indirect_idx_expr = prim.Subscript(
                         prim.Variable(bnd_name),
@@ -354,7 +354,7 @@ class ToIndexLambdaMixin:
         vng = UniqueNameGenerator()
         indices = []
 
-        in_ary = vng("in")
+        in_ary = vng("in_0")
         bindings = {in_ary: self.rec(expr.array)}
 
         islice_idx = len(adv_idx_shape)
@@ -364,7 +364,7 @@ class ToIndexLambdaMixin:
                 if isinstance(axis_len, INT_CLASSES):
                     indices.append(idx % axis_len)
                 else:
-                    bnd_name = vng("in")
+                    bnd_name = vng("in_0")
                     bindings[bnd_name] = self.rec(axis_len)
                     indices.append(idx % prim.Variable(bnd_name))
             elif isinstance(idx, NormalizedSlice):
@@ -373,7 +373,7 @@ class ToIndexLambdaMixin:
                 islice_idx += 1
             elif isinstance(idx, Array):
                 if isinstance(axis_len, INT_CLASSES):
-                    bnd_name = vng("in")
+                    bnd_name = vng("in_0")
                     bindings[bnd_name] = self.rec(idx)
 
                     indirect_idx_expr = prim.Subscript(prim.Variable(bnd_name),
@@ -407,7 +407,7 @@ class ToIndexLambdaMixin:
         vng = UniqueNameGenerator()
         indices = []
 
-        in_ary = vng("in")
+        in_ary = vng("in_0")
         bindings = {in_ary: self.rec(expr.array)}
         islice_idx = 0
 
@@ -416,7 +416,7 @@ class ToIndexLambdaMixin:
                 if isinstance(axis_len, INT_CLASSES):
                     indices.append(idx % axis_len)
                 else:
-                    bnd_name = vng("in")
+                    bnd_name = vng("in_0")
                     bindings[bnd_name] = self.rec(axis_len)
                     indices.append(idx % prim.Variable(bnd_name))
             elif isinstance(idx, NormalizedSlice):
