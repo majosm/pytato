@@ -73,13 +73,40 @@ class DotNodeInfo:
     edges: Dict[str, ArrayOrNames]
 
 
+def stringify_created_at(tags: FrozenSet[Tag]) -> str:
+    from pytato.tags import CreatedAt
+    for tag in tags:
+        if isinstance(tag, CreatedAt):
+            return tag.traceback.short_str()
+
+    return "<unknown>"
+
+
 def stringify_tags(tags: FrozenSet[Tag]) -> str:
+    # The CreatedAt tag is handled in stringify_created_at()
+    from pytato.tags import CreatedAt
+    tags = frozenset(tag for tag in tags if not isinstance(tag, CreatedAt))
+
     components = sorted(str(elem) for elem in tags)
     return "{" + ", ".join(components) + "}"
 
 
 def stringify_shape(shape: ShapeType) -> str:
-    components = [str(elem) for elem in shape]
+    from pytato.tags import CreatedAt
+    from pytato import SizeParam
+
+    new_elems = set()
+    for elem in shape:
+        if not isinstance(elem, SizeParam):
+            new_elems.add(elem)
+        else:
+            # Remove CreatedAt tags from SizeParam
+            new_elem = elem.copy(
+                    tags=frozenset(tag for tag in elem.tags
+                                    if not isinstance(tag, CreatedAt)))
+            new_elems.add(new_elem)
+
+    components = [str(elem) for elem in new_elems]
     if not components:
         components = [","]
     elif len(components) == 1:
@@ -95,9 +122,11 @@ class ArrayToDotNodeInfoMapper(CachedMapper[ArrayOrNames]):
     def get_common_dot_info(self, expr: Array) -> DotNodeInfo:
         title = type(expr).__name__
         fields = {"addr": hex(id(expr)),
-                "shape": stringify_shape(expr.shape),
-                "dtype": str(expr.dtype),
-                "tags": stringify_tags(expr.tags)}
+                  "shape": stringify_shape(expr.shape),
+                  "dtype": str(expr.dtype),
+                  "tags": stringify_tags(expr.tags),
+                  "created_at": stringify_created_at(expr.tags),
+                  }
 
         edges: Dict[str, ArrayOrNames] = {}
         return DotNodeInfo(title, fields, edges)
@@ -266,8 +295,10 @@ def _emit_array(emit: DotEmitter, title: str, fields: Dict[str, str],
     td_attrib = 'border="0"'
     table_attrib = 'border="0" cellborder="1" cellspacing="0"'
 
-    rows = ['<tr><td colspan="2" %s>%s</td></tr>'
-            % (td_attrib, dot_escape(title))]
+    rows = [f"<tr><td colspan='2' {td_attrib}>{dot_escape(title)}</td></tr>"]
+
+    created_at = fields.pop("created_at", "")
+    tooltip = dot_escape(created_at)
 
     for name, field in fields.items():
         field_content = dot_escape(field).replace("\n", "<br/>")
@@ -275,8 +306,9 @@ def _emit_array(emit: DotEmitter, title: str, fields: Dict[str, str],
                 f"<tr><td {td_attrib}>{dot_escape(name)}:</td><td {td_attrib}>"
                 f"<FONT FACE='monospace'>{field_content}</FONT></td></tr>"
         )
-    table = "<table %s>\n%s</table>" % (table_attrib, "".join(rows))
-    emit("%s [label=<%s> style=filled fillcolor=%s]" % (dot_node_id, table, color))
+    table = f"<table {table_attrib}>\n{''.join(rows)}</table>"
+    emit(f"{dot_node_id} [label=<{table}> style=filled fillcolor={color} "
+         f'tooltip="{tooltip}"]')
 
 
 def _emit_name_cluster(emit: DotEmitter, names: Mapping[str, ArrayOrNames],

@@ -27,6 +27,8 @@ THE SOFTWARE.
 
 import sys
 
+from typing import cast
+
 import numpy as np
 import pytest
 import attrs
@@ -407,7 +409,7 @@ def test_linear_complexity_inequality():
     from pytato.equality import EqualityComparer
     from numpy.random import default_rng
 
-    def construct_intestine_graph(depth=100, seed=0):
+    def construct_intestine_graph(depth=90, seed=0):
         rng = default_rng(seed)
         x = pt.make_placeholder("x", shape=(10,), dtype=float)
 
@@ -481,6 +483,10 @@ def test_array_dot_repr():
     y = pt.make_placeholder("y", (10, 4), np.int64)
 
     def _assert_stripped_repr(ary: pt.Array, expected_repr: str):
+        from pytato.transform import remove_tags_of_type
+        from pytato.tags import CreatedAt
+        ary = cast(pt.Array, remove_tags_of_type(CreatedAt, ary))
+
         expected_str = "".join([c for c in repr(ary) if c not in [" ", "\n"]])
         result_str = "".join([c for c in expected_repr if c not in [" ", "\n"]])
         assert expected_str == result_str
@@ -679,7 +685,7 @@ def test_rec_get_user_nodes_linear_complexity():
 def test_tag_user_nodes_linear_complexity():
     from numpy.random import default_rng
 
-    def construct_intestine_graph(depth=100, seed=0):
+    def construct_intestine_graph(depth=90, seed=0):
         rng = default_rng(seed)
         x = pt.make_placeholder("x", shape=(10,), dtype=float)
         y = x
@@ -824,6 +830,69 @@ def test_einsum_dot_axes_has_correct_dim():
     b = pt.make_placeholder("b", (10, 10), "float64")
     einsum = pt.einsum("ij,jk   ->    ik", a, b)
     assert len(einsum.axes) == einsum.ndim
+
+
+def test_created_at():
+    a = pt.make_placeholder("a", (10, 10), "float64")
+    b = pt.make_placeholder("b", (10, 10), "float64")
+
+    # res1 and res2 are defined on different lines and should have different
+    # CreatedAt tags.
+    res1 = a+b
+    res2 = a+b
+
+    # res3 and res4 are defined on the same line and should have the same
+    # CreatedAt tags.
+    res3 = a+b; res4 = a+b  # noqa: E702
+
+    # {{{ Check that CreatedAt tags are handled correctly for equality
+
+    from pytato.equality import preprocess_tags_for_equality
+
+    assert res1 == res2 == res3 == res4
+
+    assert res1.tags != res2.tags
+    assert res3.tags == res4.tags
+
+    assert (preprocess_tags_for_equality(res1.tags)
+            == preprocess_tags_for_equality(res2.tags))
+    assert (preprocess_tags_for_equality(res3.tags)
+            == preprocess_tags_for_equality(res4.tags))
+
+    # }}}
+
+    from pytato.tags import CreatedAt
+
+    created_tag = res1.tags_of_type(CreatedAt)
+
+    assert len(created_tag) == 1
+
+    # {{{ Make sure the function name appears in the traceback
+
+    tag, = created_tag
+
+    found = False
+
+    stacksummary = tag.traceback.to_stacksummary()
+    assert len(stacksummary) > 10
+
+    for frame in tag.traceback.frames:
+        if frame.name == "test_created_at" and "a+b" in frame.line:
+            found = True
+            break
+
+    assert found
+
+    # }}}
+
+    # {{{ Make sure that CreatedAt tags are in the visualization
+
+    from pytato.visualization import get_dot_graph
+    s = get_dot_graph(res1)
+    assert "test_created_at" in s
+    assert "a+b" in s
+
+    # }}}
 
 
 def test_pickling_and_unpickling_is_equal():

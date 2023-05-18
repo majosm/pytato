@@ -9,12 +9,14 @@ Pre-Defined Tags
 .. autoclass:: Named
 .. autoclass:: PrefixNamed
 .. autoclass:: AssumeNonNegative
+.. autoclass:: CreatedAt
 .. autoclass:: ExpandedDimsReshape
 """
 
 from typing import Tuple
-from pytools.tag import Tag, UniqueTag
+from pytools.tag import Tag, UniqueTag, IgnoredForEqualityTag
 from dataclasses import dataclass
+from pytato.array import _PytatoStackSummary
 
 
 # {{{ pre-defined tag: ImplementationStrategy
@@ -103,6 +105,22 @@ class AssumeNonNegative(Tag):
     :class:`~pytato.target.Target` that all entries of the tagged array are
     non-negative.
     """
+
+
+# See
+# https://mypy.readthedocs.io/en/stable/additional_features.html#caveats-known-issues
+# on why this can not be '@tag_dataclass'.
+@dataclass(init=True, eq=True, frozen=True, repr=True)
+class CreatedAt(UniqueTag, IgnoredForEqualityTag):
+    """
+    A tag attached to a :class:`~pytato.Array` to store the traceback
+    of where it was created.
+    """
+
+    traceback: _PytatoStackSummary
+
+    def __repr__(self) -> str:
+        return "CreatedAt(" + str(self.traceback) + ")"
 
 
 @dataclass(frozen=True)
