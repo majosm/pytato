@@ -116,6 +116,7 @@ from pytato.transform.remove_broadcasts_einsum import (
 from pytato.transform.metadata import unify_axes_tags
 from pytato.function import trace_call
 from pytato.array import set_traceback_tag_enabled
+from pytato.transform.calls import concatenate_calls
 
 __all__ = (
         "dtype",
@@ -162,6 +163,8 @@ __all__ = (
         "broadcast_to", "pad",
 
         "trace_call",
+
+        "concatenate_calls",
 
         "make_distributed_recv", "make_distributed_send", "DistributedRecv",
         "DistributedSend", "make_distributed_send_ref_holder",
