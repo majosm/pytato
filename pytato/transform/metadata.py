@@ -641,6 +641,27 @@ class AxisTagAttacher(CopyMapper):
 
                 # }}}
 
+                for iaxis, axis in enumerate(expr_copy.axes):
+                    if not axis.tags:
+                        from pytato.tags import CreatedAt
+
+                        created_at_tag, = expr_copy.tags_of_type(CreatedAt)
+
+                        from pytato.transform import remove_tags_of_type
+                        expr_print = remove_tags_of_type(CreatedAt, expr_copy)
+
+                        details_str = (
+                            f"Axis: {iaxis}\n"
+                            f"Expression: {expr_print}\n")
+
+                        if created_at_tag:
+                            details_str += (
+                                f"Created at: {created_at_tag.traceback}\n"
+                                + f"Created at hash: {hash(created_at_tag)}\n")
+
+                        from warnings import warn
+                        warn("Failed to infer axis.\n" + details_str)
+
                 self._cache[key] = expr_copy
                 return expr_copy
 
