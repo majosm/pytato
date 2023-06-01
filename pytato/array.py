@@ -2171,6 +2171,9 @@ def make_placeholder(name: str,
         raise ValueError("'axes' dimensionality mismatch:"
                          f" expected {len(shape)}, got {len(axes)}.")
 
+    from pytato.tags import CreatedAt
+    tags = frozenset(tag for tag in tags if not isinstance(tag, CreatedAt))
+
     return Placeholder(name, shape, dtype, axes=axes,
                        tags=(tags | _get_default_tags(tags)))
 
@@ -2186,6 +2189,10 @@ def make_size_param(name: str,
     :param tags:       implementation tags
     """
     _check_identifier(name, optional=False)
+
+    from pytato.tags import CreatedAt
+    tags = frozenset(tag for tag in tags if not isinstance(tag, CreatedAt))
+
     return SizeParam(name, tags=(tags | _get_default_tags(tags)))
 
 
@@ -2224,6 +2231,9 @@ def make_data_wrapper(data: DataInterface,
     if len(axes) != len(shape):
         raise ValueError("'axes' dimensionality mismatch:"
                          f" expected {len(shape)}, got {len(axes)}.")
+
+    from pytato.tags import CreatedAt
+    tags = frozenset(tag for tag in tags if not isinstance(tag, CreatedAt))
 
     return DataWrapper(data, shape, axes=axes, tags=(tags | _get_default_tags(tags)))
 
