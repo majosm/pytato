@@ -600,6 +600,16 @@ def test_nodecountmapper():
         assert get_num_nodes(dag)-1 == len(pt.transform.DependencyMapper()(dag))
 
 
+def test_nodemaxdepthmapper():
+    from pytato.analysis import get_max_node_depth
+
+    x = pt.make_placeholder("x", shape=(10, 4), dtype=np.float64)
+    for i in range(9):
+        x = x + 1
+
+    assert get_max_node_depth(x) == 10
+
+
 def test_rec_get_user_nodes():
     x1 = pt.make_placeholder("x1", shape=(10, 4), dtype=np.float64)
     x2 = pt.make_placeholder("x2", shape=(10, 4), dtype=np.float64)
