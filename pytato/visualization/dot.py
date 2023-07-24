@@ -61,6 +61,7 @@ __doc__ = """
 .. autofunction:: get_dot_graph
 .. autofunction:: get_dot_graph_from_partition
 .. autofunction:: show_dot_graph
+.. autofunction:: write_dot_graph
 """
 
 
@@ -790,7 +791,7 @@ def get_dot_graph_from_partition(partition: DistributedGraphPartition) -> str:
 
 def show_dot_graph(result: Union[str, Array, DictOfNamedArrays,
                                  DistributedGraphPartition],
-        **kwargs: Any) -> None:
+        **kwargs: Any) -> Optional[str]:
     """Show a graph representing the computation of *result* in a browser.
 
     :arg result: Outputs of the computation (cf.
@@ -808,6 +809,24 @@ def show_dot_graph(result: Union[str, Array, DictOfNamedArrays,
         dot_code = get_dot_graph(result)
 
     from pytools.graphviz import show_dot
-    show_dot(dot_code, **kwargs)
+    return show_dot(dot_code, **kwargs)
+
+
+def write_dot_graph(result: Union[str, Array, DictOfNamedArrays,
+                                  DistributedGraphPartition],
+        destination: str,
+        **kwargs: Any) -> None:
+    """Create a visualization of a graph and write it to an SVG file.
+
+    :arg result: Outputs of the computation (cf.
+        :func:`pytato.generate_loopy`) or the output of :func:`get_dot_graph`,
+        or the output of :func:`~pytato.find_distributed_partition`.
+    :arg destination: The destination path of the SVG file.
+    :arg kwargs: Passed on to :func:`pytools.graphviz.show_dot` unmodified.
+    """
+    tmp_file = show_dot_graph(result, output_to="svg", **kwargs)
+
+    import shutil
+    shutil.move(tmp_file, destination)
 
 # vim:fdm=marker
