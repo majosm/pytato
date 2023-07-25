@@ -32,7 +32,7 @@ import logging
 import numpy as np
 from immutables import Map
 from typing import (Any, Callable, Dict, FrozenSet, Union, TypeVar, Set, Generic,
-                    List, Mapping, Iterable, Tuple, Optional,
+                    List, Mapping, Iterable, Tuple, Optional, TYPE_CHECKING,
                     Hashable)
 
 from pytato.array import (
@@ -185,9 +185,7 @@ class Mapper:
         assert method is not None
         return method(expr, *args, **kwargs)
 
-    def __call__(self, expr: MappedT, *args: Any, **kwargs: Any) -> Any:
-        """Handle the mapping of *expr*."""
-        return self.rec(expr, *args, **kwargs)
+    __call__ = rec
 
 # }}}
 
@@ -217,10 +215,11 @@ class CachedMapper(Mapper, Generic[CachedMapperT]):
             # type-ignore-reason: Mapper.rec has imprecise func. signature
             return result  # type: ignore[no-any-return]
 
-    # type-ignore-reason: incompatible with super class
-    def __call__(self, expr: ArrayOrNames  # type: ignore[override]
-                 ) -> CachedMapperT:
-        return self.rec(expr)
+    if TYPE_CHECKING:
+        # type-ignore-reason: incompatible with super class
+        def __call__(self, expr: ArrayOrNames  # type: ignore[override]
+                     ) -> CachedMapperT:
+            return self.rec(expr)
 
 # }}}
 
@@ -238,16 +237,25 @@ class CopyMapper(CachedMapper[ArrayOrNames]):
 
        This does not copy the data of a :class:`pytato.array.DataWrapper`.
     """
-
-    # type-ignore-reason: specialized variant of super-class' rec method
-    def rec(self,  # type: ignore[override]
-            expr: CopyMapperResultT) -> CopyMapperResultT:
-        # type-ignore-reason: CachedMapper.rec's return type is imprecise
-        return super().rec(expr)  # type: ignore[return-value]
-
-    # type-ignore reason: incompatible type with Mapper.rec
-    def __call__(self, expr: MappedT) -> MappedT:  # type: ignore[override]
-        return self.rec(expr)  # type: ignore[no-any-return]
+    if TYPE_CHECKING:
+        # type-ignore-reason: specialized variant of super-class' rec method
+        def rec(self,  # type: ignore[override]
+                expr: CopyMapperResultT) -> CopyMapperResultT:
+            # type-ignore-reason: CachedMapper.rec's return type is imprecise
+            return super().rec(expr)  # type: ignore[return-value]
+        # <<<<<<< HEAD
+        #     # type-ignore-reason: specialized variant of super-class' rec method
+        #     def rec(self,  # type: ignore[override]
+        #             expr: CopyMapperResultT) -> CopyMapperResultT:
+        #         # type-ignore-reason: CachedMapper.rec's return type is imprecise
+        #         return super().rec(expr)  # type: ignore[return-value]
+        # 
+        #     # type-ignore reason: incompatible type with Mapper.rec
+        #    def __call__(self, expr: MappedT) -> MappedT:  # type: ignore[override]
+        #         return self.rec(expr)  # type: ignore[no-any-return]
+    # =======
+        __call__ = rec
+    # >>>>>>> main
 
     def clone_for_callee(self: _SelfMapper) -> _SelfMapper:
         """
@@ -1232,9 +1240,8 @@ class CachedMapAndCopyMapper(CopyMapper):
         # type-ignore-reason: map_fn has imprecise types
         return result  # type: ignore[return-value]
 
-    # type-ignore-reason: Mapper.__call__ returns Any
-    def __call__(self, expr: MappedT) -> MappedT:  # type: ignore[override]
-        return self.rec(expr)
+    if TYPE_CHECKING:
+        __call__ = rec
 
 # }}}
 
