@@ -272,9 +272,9 @@ class CopyMapper(CachedMapper[ArrayOrNames]):
                      for s in situp)
 
     def map_index_lambda(self, expr: IndexLambda) -> Array:
-        bindings: Dict[str, Array] = {
+        bindings: Mapping[str, Array] = Map({
                 name: self.rec(subexpr)
-                for name, subexpr in sorted(expr.bindings.items())}
+                for name, subexpr in sorted(expr.bindings.items())})
         return IndexLambda(expr=expr.expr,
                 shape=self.rec_idx_or_size_tuple(expr.shape),
                 dtype=expr.dtype,
@@ -379,7 +379,7 @@ class CopyMapper(CachedMapper[ArrayOrNames]):
         rec_container = self.rec(expr._container)
         assert isinstance(rec_container, LoopyCall)
         return LoopyCallResult(
-                loopy_call=rec_container,
+                container=rec_container,
                 name=expr.name,
                 axes=expr.axes,
                 tags=expr.tags)
@@ -605,7 +605,7 @@ class CopyMapperWithExtraArgs(CachedMapper[ArrayOrNames]):
         rec_loopy_call = self.rec(expr._container, *args, **kwargs)
         assert isinstance(rec_loopy_call, LoopyCall)
         return LoopyCallResult(
-                loopy_call=rec_loopy_call,
+                container=rec_loopy_call,
                 name=expr.name,
                 axes=expr.axes,
                 tags=expr.tags)
@@ -773,7 +773,8 @@ class CombineMapper(Mapper, Generic[CombineT]):
 
     def map_call(self, expr: Call) -> CombineT:
         return self.combine(self.map_function_definition(expr.function),
-                            *[self.rec(bnd) for bnd in expr.bindings.values()])
+                            *[self.rec(bnd)
+                              for name, bnd in sorted(expr.bindings.items())])
 
     def map_named_call_result(self, expr: NamedCallResult) -> CombineT:
         return self.rec(expr._container)
@@ -1319,11 +1320,11 @@ class MPMSMaterializer(Mapper):
         children_rec = {bnd_name: self.rec(bnd)
                         for bnd_name, bnd in sorted(expr.bindings.items())}
 
-        new_expr = IndexLambda(expr.expr,
-                               expr.shape,
-                               expr.dtype,
-                               {bnd_name: bnd.expr
-                                for bnd_name, bnd in children_rec.items()},
+        new_expr = IndexLambda(expr=expr.expr,
+                               shape=expr.shape,
+                               dtype=expr.dtype,
+                               bindings=Map({bnd_name: bnd.expr
+                                for bnd_name, bnd in sorted(children_rec.items())}),
                                axes=expr.axes,
                                var_to_reduction_descr=expr.var_to_reduction_descr,
                                tags=expr.tags)
