@@ -448,6 +448,17 @@ class CodeGenMapper(Mapper):
             pass
         # }}}
 
+        from mpi4py import MPI
+        from meshmode.transform_metadata import DiscretizationElementAxisTag
+        if (
+                len(expr.axes) > 0
+                and expr.axes[0].tags_of_type(DiscretizationElementAxisTag)
+                and expr.shape[0] == 1
+                and MPI.COMM_WORLD.rank == 3):
+            from pytato.tags import CreatedAt
+            created_at_tag, = expr.tags_of_type(CreatedAt)
+            print(f"map_index_lambda: {created_at_tag.traceback=}")
+
         state.results[expr] = result
         return result
 
@@ -904,6 +915,19 @@ def add_store(name: str, expr: Array, result: ImplementedResult,
                 if all(not isinstance(tag, tag_t)
                        for tag_t in cgen_mapper.axis_tag_t_to_not_propagate):
                     kernel = lp.tag_inames(kernel, {iname: tag})
+
+    from mpi4py import MPI
+    if MPI.COMM_WORLD.rank == 3:
+        print(f"add_store: {insn.within_inames=}")
+        if "idof_ensm32" in insn.within_inames:
+            from pytato.tags import CreatedAt
+            created_at_tag, = expr.tags_of_type(CreatedAt)
+            print(f"add_store: {type(expr)}")
+            print(f"add_store: {expr.axes=}")
+            print(f"add_store: {created_at_tag.traceback=}")
+
+            from pytato.visualization import write_dot_graph
+            write_dot_graph(expr, f"add_store{hash(expr)}.svg")
 
     # }}}
 

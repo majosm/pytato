@@ -898,6 +898,20 @@ class IndexLambda(_SuppliedShapeAndDtypeMixin, Array):
             if isinstance(value, dict):
                 raise TypeError("bindings may not be a dict")
 
+    def __attrs_post_init__(self) -> None:
+        super().__attrs_post_init__()
+        from mpi4py import MPI
+        if MPI.COMM_WORLD.rank == 0:
+            from pytato.tags import PrefixNamed
+            for ary in self.bindings.values():
+                name_tags = ary.tags_of_type(PrefixNamed)
+                if name_tags:
+                    ary_name_tag, = name_tags
+                    ary_name = ary_name_tag.prefix
+                    if ary_name == "from_el_indices_b":
+                        print(f"IndexLambda.__attrs_post_init__: {ary.shape=}")
+                        print(f"IndexLambda.__attrs_post_init__: {ary.axes=}")
+
     def with_tagged_reduction(self,
                               reduction_variable: str,
                               tag: Tag) -> IndexLambda:
@@ -1483,6 +1497,18 @@ class Reshape(IndexRemappingBase):
             # FIXME: Get rid of this restriction
             assert self.order == "C"
             super().__attrs_post_init__()
+            from mpi4py import MPI
+            if MPI.COMM_WORLD.rank == 0:
+                from pytato.tags import PrefixNamed
+                name_tags = self.array.tags_of_type(PrefixNamed)
+                if name_tags:
+                    ary_name_tag, = name_tags
+                    ary_name = ary_name_tag.prefix
+                    if ary_name == "from_el_indices_b":
+                        print(f"Reshape.__attrs_post_init__: {self.array.shape=}")
+                        print(f"Reshape.__attrs_post_init__: {self.array.axes=}")
+                        print(f"Reshape.__attrs_post_init__: {self.shape=}")
+                        print(f"Reshape.__attrs_post_init__: {self.axes=}")
 
     @property
     def shape(self) -> ShapeType:
@@ -2201,11 +2227,29 @@ def full(shape: ConvertibleToShape, fill_value: ScalarType,
     else:
         fill_value = dtype.type(fill_value)
 
-    return IndexLambda(expr=fill_value, shape=shape, dtype=dtype,
-                       bindings=Map(),
-                       tags=_get_default_tags(),
-                       axes=_get_default_axes(len(shape)),
-                       var_to_reduction_descr=Map())
+    bindings = Map()
+    tags = _get_default_tags()
+    axes = _get_default_axes(len(shape))
+    var_to_reduction_descr = Map()
+
+    result = IndexLambda(expr=fill_value, shape=shape, dtype=dtype,
+                         bindings=bindings,
+                         tags=tags,
+                         axes=axes,
+                         var_to_reduction_descr=var_to_reduction_descr)
+
+    from mpi4py import MPI
+    if MPI.COMM_WORLD.rank == 0 and shape[0] == 48096:
+        print(f"full: {hash(fill_value)=}")
+        print(f"full: {hash(shape)=}")
+        print(f"full: {hash(dtype)=}")
+        print(f"full: {hash(frozenset(bindings.items()))=}")
+        print(f"full: {hash(tags)=}")
+        print(f"full: {hash(axes)=}")
+        print(f"full: {hash(var_to_reduction_descr)=}")
+        print(f"full: {hash(result)=}")
+
+    return result
 
 
 def zeros(shape: ConvertibleToShape, dtype: Any = float,

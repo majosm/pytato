@@ -305,12 +305,29 @@ def _make_reduction_lambda(
         raise NotImplementedError("reduction with 'initial' not equal to the "
                 "neutral element")
 
+    subscript_expr = prim.Subscript(prim.Variable("in"), tuple(indices))
+    expr = Reduce(
+        subscript_expr,
+        op,
+        redn_bounds)
+    bindings = {"in": a}
+
+    from mpi4py import MPI
+    if MPI.COMM_WORLD.rank == 0:
+        print(f"_make_reduction_lambda: {hash(subscript_expr)=}")
+        print(f"_make_reduction_lambda: {hash(op)=}")
+        print(f"_make_reduction_lambda: {hash(tuple(redn_bounds.keys()))=}")
+        print(f"_make_reduction_lambda: {hash(tuple(redn_bounds.values()))=}")
+        print(f"_make_reduction_lambda: {hash(expr)=}")
+        print(f"_make_reduction_lambda: {expr=}")
+        print(f"_make_reduction_lambda: {hash(frozenset(bindings.items()))=}")
+        print(f"_make_reduction_lambda: {hash(new_shape)=}")
+        print(f"_make_reduction_lambda: {hash(a.dtype)=}")
+        print(f"_make_reduction_lambda: {hash(frozenset(var_to_redn_descr.items()))=}")
+
     return make_index_lambda(
-            Reduce(
-                prim.Subscript(prim.Variable("in"), tuple(indices)),
-                op,
-                redn_bounds),
-            {"in": a},
+            expr,
+            bindings,
             new_shape,
             a.dtype,
             var_to_reduction_descr=var_to_redn_descr)
