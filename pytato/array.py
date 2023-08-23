@@ -1646,6 +1646,9 @@ class DataInterface(Protocol):
     def dtype(self) -> np.dtype[Any]:
         pass
 
+    def get(self) -> np.array:
+        pass
+
 
 @attrs.frozen(eq=False, repr=False, hash=False)
 class DataWrapper(InputArgumentBase):
@@ -1703,9 +1706,7 @@ class DataWrapper(InputArgumentBase):
         return True
 
     def __hash__(self) -> int:
-        # It would be better to hash the data, but we have no way of getting to
-        # it.
-        return hash((self.name, id(self.data), self._shape, self.axes,
+        return hash((self.name, self.data.get().tobytes(), self._shape, self.axes,
                      Taggable.__hash__(self)))
 
     @property

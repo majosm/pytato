@@ -91,7 +91,7 @@ class ReductionOperation(ABC):
 
 class _StatelessReductionOperation(ReductionOperation):
     def __hash__(self) -> int:
-        return hash(type(self))
+        return hash(str(type(self)))
 
     def __eq__(self, other: Any) -> bool:
         return type(self) is type(other)
