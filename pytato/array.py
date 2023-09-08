@@ -1,4 +1,5 @@
 from __future__ import annotations
+from traceback import FrameSummary, StackSummary
 
 __copyright__ = """
 Copyright (C) 2020 Andreas Kloeckner
@@ -144,6 +145,14 @@ Internal API
 .. autoclass:: EinsumReductionAxis
 .. autoclass:: NormalizedSlice
 
+Internal classes for traceback
+------------------------------
+
+Please consider these undocumented and subject to change at any time.
+
+.. class:: _PytatoFrameSummary
+.. class:: _PytatoStackSummary
+
 Internal stuff that is only here because the documentation tool wants it
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -172,7 +181,7 @@ import numpy as np
 import pymbolic.primitives as prim
 from pymbolic import var
 from pytools import memoize_method
-from pytools.tag import Tag, Taggable
+from pytools.tag import Tag, Taggable, ToTagSetConvertible
 
 from pytato.scalar_expr import (ScalarType, SCALAR_CLASSES,
                                 ScalarExpression, IntegralT,
@@ -267,7 +276,7 @@ def normalize_shape(
 # }}}
 
 
-# {{{ array inteface
+# {{{ array interface
 
 ConvertibleToIndexExpr = Union[int, slice, "Array", None, EllipsisType]
 IndexExpr = Union[IntegralT, "NormalizedSlice", "Array", None, EllipsisType]
@@ -376,7 +385,7 @@ class Array(Taggable):
             :class:`~pytato.array.IndexLambda` is used to produce
             references to named arrays. Since any array that needs to be
             referenced in this way needs to obey this restriction anyway,
-            a decision was made to requir the same of *all* array expressions.
+            a decision was made to require the same of *all* array expressions.
 
     .. attribute:: dtype
 
@@ -671,6 +680,12 @@ class Array(Taggable):
     def __repr__(self) -> str:
         from pytato.stringifier import Reprifier
         return Reprifier()(self)
+
+    def tagged(self, tags: ToTagSetConvertible) -> Array:
+        from pytato.equality import preprocess_tags_for_equality
+        from pytools.tag import normalize_tags
+        new_tags = preprocess_tags_for_equality(normalize_tags(tags))
+        return super().tagged(new_tags)
 
 # }}}
 
@@ -1690,7 +1705,8 @@ class DataWrapper(InputArgumentBase):
     def __hash__(self) -> int:
         # It would be better to hash the data, but we have no way of getting to
         # it.
-        return id(self)
+        return hash((self.name, id(self.data), self._shape, self.axes,
+                     Taggable.__hash__(self)))
 
     @property
     def shape(self) -> ShapeType:
@@ -1758,8 +1774,97 @@ def _get_default_axes(ndim: int) -> AxesT:
     return tuple(Axis(frozenset()) for _ in range(ndim))
 
 
-def _get_default_tags() -> FrozenSet[Tag]:
-    return frozenset()
+@attrs.define(frozen=True, eq=True)
+class _PytatoFrameSummary:
+    """Class to store a single call frame."""
+    filename: str
+    lineno: Optional[int]
+    name: str
+    line: Optional[str]
+
+    def update_persistent_hash(self, key_hash: int, key_builder: Any) -> None:
+        key_builder.rec(key_hash,
+                (self.__class__.__module__, self.__class__.__qualname__))
+
+        from attrs import fields
+        # Fields are ordered consistently, so ordered hashing is OK.
+        #
+        # No need to dispatch to superclass: fields() automatically gives us
+        # fields from the entire class hierarchy.
+        for f in fields(self.__class__):
+            key_builder.rec(key_hash, getattr(self, f.name))
+
+    def short_str(self, maxlen: int = 100) -> str:
+        s = f"{self.filename}:{self.lineno}, in {self.name}():\n{self.line}"
+        s1, s2 = s.split("\n")
+        # Limit display to maxlen characters
+        s1 = "[...] " + s1[len(s1)-maxlen:] if len(s1) > maxlen else s1
+        s2 = s2[:maxlen] + " [...]" if len(s2) > maxlen else s2
+        return s1 + "\n" + s2
+
+    def __repr__(self) -> str:
+        return f"{self.filename}:{self.lineno}, in {self.name}(): {self.line}"
+
+
+@attrs.define(frozen=True, eq=True)
+class _PytatoStackSummary:
+    """Class to store a list of :class:`_PytatoFrameSummary` call frames."""
+    frames: Tuple[_PytatoFrameSummary, ...]
+
+    def to_stacksummary(self) -> StackSummary:
+        frames = [FrameSummary(f.filename, f.lineno, f.name, line=f.line)
+                  for f in self.frames]
+
+        return StackSummary.from_list(frames)
+
+    def update_persistent_hash(self, key_hash: int, key_builder: Any) -> None:
+        key_builder.rec(key_hash,
+                (self.__class__.__module__, self.__class__.__qualname__))
+
+        from attrs import fields
+        # Fields are ordered consistently, so ordered hashing is OK.
+        #
+        # No need to dispatch to superclass: fields() automatically gives us
+        # fields from the entire class hierarchy.
+        for f in fields(self.__class__):
+            key_builder.rec(key_hash, getattr(self, f.name))
+
+    def short_str(self, maxlen: int = 100) -> str:
+        from os.path import dirname
+
+        # Find the first file in the frames that is not in pytato's pytato/
+        # directory.
+        for frame in reversed(self.frames):
+            frame_dir = dirname(frame.filename)
+            if not frame_dir.endswith("pytato"):
+                return frame.short_str(maxlen)
+
+        # Fallback in case we don't find any file that is not in the pytato/
+        # directory (should be unlikely).
+        return self.__repr__()
+
+    def __repr__(self) -> str:
+        return "\n  " + "\n  ".join([str(f) for f in self.frames])
+
+
+def _get_default_tags(existing_tags: Optional[FrozenSet[Tag]] = None) \
+        -> FrozenSet[Tag]:
+    import traceback
+    from pytato.tags import CreatedAt
+
+    from pytato import DEBUG_ENABLED
+
+    # This has a significant overhead, so only enable it when PYTATO_DEBUG is
+    # enabled.
+    if DEBUG_ENABLED and (
+            existing_tags is None
+            or not any(isinstance(tag, CreatedAt) for tag in existing_tags)):
+        frames = tuple(_PytatoFrameSummary(s.filename, s.lineno, s.name, s.line)
+                       for s in traceback.extract_stack())
+        c = CreatedAt(_PytatoStackSummary(frames))
+        return frozenset((c,))
+    else:
+        return frozenset()
 
 
 def matmul(x1: Array, x2: Array) -> Array:
@@ -2018,7 +2123,7 @@ def make_placeholder(name: str,
                          f" expected {len(shape)}, got {len(axes)}.")
 
     return Placeholder(name=name, shape=shape, dtype=dtype, axes=axes,
-                       tags=(tags | _get_default_tags()))
+                       tags=(tags | _get_default_tags(tags)))
 
 
 def make_size_param(name: str,
@@ -2032,7 +2137,7 @@ def make_size_param(name: str,
     :param tags:       implementation tags
     """
     _check_identifier(name, optional=False)
-    return SizeParam(name, tags=(tags | _get_default_tags()))
+    return SizeParam(name, tags=(tags | _get_default_tags(tags)))
 
 
 def make_data_wrapper(data: DataInterface,
@@ -2071,7 +2176,7 @@ def make_data_wrapper(data: DataInterface,
         raise ValueError("'axes' dimensionality mismatch:"
                          f" expected {len(shape)}, got {len(axes)}.")
 
-    return DataWrapper(data, shape, axes=axes, tags=(tags | _get_default_tags()))
+    return DataWrapper(data, shape, axes=axes, tags=(tags | _get_default_tags(tags)))
 
 # }}}
 

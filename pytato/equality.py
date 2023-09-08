@@ -24,7 +24,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from typing import Any, Callable, Dict, TYPE_CHECKING, Tuple, Union
+from typing import Any, Callable, Dict, TYPE_CHECKING, Tuple, Union, FrozenSet
 from pytato.array import (AdvancedIndexInContiguousAxes,
                           AdvancedIndexInNoncontiguousAxes, AxisPermutation,
                           BasicIndex, Concatenate, DataWrapper, Einsum,
@@ -34,16 +34,28 @@ from pytato.array import (AdvancedIndexInContiguousAxes,
 from pytato.function import Call, NamedCallResult, FunctionDefinition
 from pytools import memoize_method
 
+from pytools.tag import Tag, IgnoredForEqualityTag, Taggable
+
 if TYPE_CHECKING:
     from pytato.loopy import LoopyCall, LoopyCallResult
     from pytato.distributed.nodes import DistributedRecv, DistributedSendRefHolder
 
+
 __doc__ = """
+.. autofunction:: preprocess_tags_for_equality
 .. autoclass:: EqualityComparer
 """
 
 
 ArrayOrNames = Union[Array, AbstractResultWithNamedArrays]
+
+
+def preprocess_tags_for_equality(tags: FrozenSet[Tag]) -> FrozenSet[Tag]:
+    """Remove tags of :class:`~pytools.tag.IgnoredForEqualityTag` for equality
+    comparison."""
+    return frozenset(tag
+                     for tag in tags
+                     if not isinstance(tag, IgnoredForEqualityTag))
 
 
 # {{{ EqualityComparer
@@ -105,14 +117,14 @@ class EqualityComparer:
                 and expr1.name == expr2.name
                 and expr1.shape == expr2.shape
                 and expr1.dtype == expr2.dtype
-                and expr1.tags == expr2.tags
+                and Taggable.__eq__(expr1, expr2)
                 and expr1.axes == expr2.axes
                 )
 
     def map_size_param(self, expr1: SizeParam, expr2: Any) -> bool:
         return (expr1.__class__ is expr2.__class__
                 and expr1.name == expr2.name
-                and expr1.tags == expr2.tags
+                and Taggable.__eq__(expr1, expr2)
                 and expr1.axes == expr2.axes
                 )
 
@@ -131,7 +143,7 @@ class EqualityComparer:
                         if isinstance(dim1, Array)
                         else dim1 == dim2
                         for dim1, dim2 in zip(expr1.shape, expr2.shape))
-                and expr1.tags == expr2.tags
+                and Taggable.__eq__(expr1, expr2)
                 and expr1.axes == expr2.axes
                 and expr1.var_to_reduction_descr == expr2.var_to_reduction_descr
                 )
@@ -142,7 +154,7 @@ class EqualityComparer:
                 and len(expr1.arrays) == len(expr2.arrays)
                 and all(self.rec(ary1, ary2)
                         for ary1, ary2 in zip(expr1.arrays, expr2.arrays))
-                and expr1.tags == expr2.tags
+                and Taggable.__eq__(expr1, expr2)
                 and expr1.axes == expr2.axes
                 )
 
@@ -152,7 +164,7 @@ class EqualityComparer:
                 and len(expr1.arrays) == len(expr2.arrays)
                 and all(self.rec(ary1, ary2)
                         for ary1, ary2 in zip(expr1.arrays, expr2.arrays))
-                and expr1.tags == expr2.tags
+                and Taggable.__eq__(expr1, expr2)
                 and expr1.axes == expr2.axes
                 )
 
@@ -161,7 +173,7 @@ class EqualityComparer:
                 and expr1.axis == expr2.axis
                 and expr1.shift == expr2.shift
                 and self.rec(expr1.array, expr2.array)
-                and expr1.tags == expr2.tags
+                and Taggable.__eq__(expr1, expr2)
                 and expr1.axes == expr2.axes
                 )
 
@@ -169,7 +181,7 @@ class EqualityComparer:
         return (expr1.__class__ is expr2.__class__
                 and expr1.axis_permutation == expr2.axis_permutation
                 and self.rec(expr1.array, expr2.array)
-                and expr1.tags == expr2.tags
+                and Taggable.__eq__(expr1, expr2)
                 and expr1.axes == expr2.axes
                 )
 
@@ -182,7 +194,7 @@ class EqualityComparer:
                             and isinstance(idx2, Array))
                         else idx1 == idx2
                         for idx1, idx2 in zip(expr1.indices, expr2.indices))
-                and expr1.tags == expr2.tags
+                and Taggable.__eq__(expr1, expr2)
                 and expr1.axes == expr2.axes
                 )
 
@@ -205,7 +217,7 @@ class EqualityComparer:
         return (expr1.__class__ is expr2.__class__
                 and expr1.newshape == expr2.newshape
                 and self.rec(expr1.array, expr2.array)
-                and expr1.tags == expr2.tags
+                and Taggable.__eq__(expr1, expr2)
                 and expr1.axes == expr2.axes
                 )
 
@@ -215,7 +227,7 @@ class EqualityComparer:
                 and all(self.rec(ary1, ary2)
                         for ary1, ary2 in zip(expr1.args,
                                               expr2.args))
-                and expr1.tags == expr2.tags
+                and Taggable.__eq__(expr1, expr2)
                 and expr1.axes == expr2.axes
                 and expr1.redn_axis_to_redn_descr == expr2.redn_axis_to_redn_descr
                 )
@@ -223,7 +235,7 @@ class EqualityComparer:
     def map_named_array(self, expr1: NamedArray, expr2: Any) -> bool:
         return (expr1.__class__ is expr2.__class__
                 and self.rec(expr1._container, expr2._container)
-                and expr1.tags == expr2.tags
+                and Taggable.__eq__(expr1, expr2)
                 and expr1.axes == expr2.axes
                 and expr1.name == expr2.name)
 
@@ -237,13 +249,13 @@ class EqualityComparer:
                         if isinstance(bnd, Array)
                         else bnd == expr2.bindings[name]
                         for name, bnd in expr1.bindings.items())
-                and expr1.tags == expr2.tags
+                and Taggable.__eq__(expr1, expr2)
                 )
 
     def map_loopy_call_result(self, expr1: LoopyCallResult, expr2: Any) -> bool:
         return (expr1.__class__ is expr2.__class__
                 and self.rec(expr1._container, expr2._container)
-                and expr1.tags == expr2.tags
+                and Taggable.__eq__(expr1, expr2)
                 and expr1.axes == expr2.axes
                 and expr1.name == expr2.name)
 
@@ -252,7 +264,7 @@ class EqualityComparer:
                 and frozenset(expr1._data.keys()) == frozenset(expr2._data.keys())
                 and all(self.rec(expr1._data[name], expr2._data[name])
                         for name in expr1._data)
-                and expr1.tags == expr2.tags
+                and Taggable.__eq__(expr1, expr2)
                 )
 
     def map_distributed_send_ref_holder(
@@ -262,8 +274,8 @@ class EqualityComparer:
                 and self.rec(expr1.passthrough_data, expr2.passthrough_data)
                 and expr1.send.dest_rank == expr2.send.dest_rank
                 and expr1.send.comm_tag == expr2.send.comm_tag
-                and expr1.send.tags == expr2.send.tags
-                and expr1.tags == expr2.tags
+                and Taggable.__eq__(expr1.send, expr2.send)
+                and Taggable.__eq__(expr1, expr2)
                 )
 
     def map_distributed_recv(self, expr1: DistributedRecv, expr2: Any) -> bool:
@@ -272,7 +284,7 @@ class EqualityComparer:
                 and expr1.comm_tag == expr2.comm_tag
                 and expr1.shape == expr2.shape
                 and expr1.dtype == expr2.dtype
-                and expr1.tags == expr2.tags
+                and Taggable.__eq__(expr1, expr2)
                 )
 
     @memoize_method
