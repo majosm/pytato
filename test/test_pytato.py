@@ -821,9 +821,6 @@ def test_created_at():
     a = pt.make_placeholder("a", (10, 10), "float64")
     b = pt.make_placeholder("b", (10, 10), "float64")
 
-    _prev_debug_enabled = pt.DEBUG_ENABLED
-    pt.DEBUG_ENABLED = True
-
     # res1 and res2 are defined on different lines and should have different
     # CreatedAt tags.
     res1 = a+b
@@ -879,8 +876,6 @@ def test_created_at():
     s = get_dot_graph(res1)
     assert "test_created_at" in s
     assert "a+b" in s
-
-    pt.DEBUG_ENABLED = _prev_debug_enabled
 
     # }}}
 
