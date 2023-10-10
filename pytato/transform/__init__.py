@@ -30,7 +30,7 @@ THE SOFTWARE.
 
 import logging
 import numpy as np
-from immutables import Map
+from immutabledict import immutabledict
 from typing import (Any, Callable, Dict, FrozenSet, Union, TypeVar, Set, Generic,
                     List, Mapping, Iterable, Tuple, Optional, TYPE_CHECKING,
                     Hashable)
@@ -272,7 +272,7 @@ class CopyMapper(CachedMapper[ArrayOrNames]):
                      for s in situp)
 
     def map_index_lambda(self, expr: IndexLambda) -> Array:
-        bindings: Mapping[str, Array] = Map({
+        bindings: Mapping[str, Array] = immutabledict({
                 name: self.rec(subexpr)
                 for name, subexpr in sorted(expr.bindings.items())})
         return IndexLambda(expr=expr.expr,
@@ -365,9 +365,10 @@ class CopyMapper(CachedMapper[ArrayOrNames]):
                                  )
 
     def map_loopy_call(self, expr: LoopyCall) -> LoopyCall:
-        bindings = {name: (self.rec(subexpr) if isinstance(subexpr, Array)
+        bindings: Mapping[Any, Any] = immutabledict(
+                    {name: (self.rec(subexpr) if isinstance(subexpr, Array)
                            else subexpr)
-                    for name, subexpr in sorted(expr.bindings.items())}
+                    for name, subexpr in sorted(expr.bindings.items())})
 
         return LoopyCall(translation_unit=expr.translation_unit,
                          bindings=bindings,
@@ -417,13 +418,13 @@ class CopyMapper(CachedMapper[ArrayOrNames]):
                        for name, ret in expr.returns.items()}
         return FunctionDefinition(expr.parameters,
                                   expr.return_type,
-                                  Map(new_returns),
+                                  immutabledict(new_returns),
                                   tags=expr.tags
                                   )
 
     def map_call(self, expr: Call) -> AbstractResultWithNamedArrays:
         return Call(self.map_function_definition(expr.function),
-                    Map({name: self.rec(bnd)
+                    immutabledict({name: self.rec(bnd)
                          for name, bnd in expr.bindings.items()}),
                     tags=expr.tags,
                     )
@@ -589,10 +590,11 @@ class CopyMapperWithExtraArgs(CachedMapper[ArrayOrNames]):
 
     def map_loopy_call(self, expr: LoopyCall,
                        *args: Any, **kwargs: Any) -> LoopyCall:
-        bindings = {name: (self.rec(subexpr, *args, **kwargs)
+        bindings: Mapping[Any, Any] = immutabledict(
+                    {name: (self.rec(subexpr, *args, **kwargs)
                            if isinstance(subexpr, Array)
                            else subexpr)
-                    for name, subexpr in sorted(expr.bindings.items())}
+                    for name, subexpr in sorted(expr.bindings.items())})
 
         return LoopyCall(translation_unit=expr.translation_unit,
                          bindings=bindings,
@@ -645,7 +647,7 @@ class CopyMapperWithExtraArgs(CachedMapper[ArrayOrNames]):
     def map_call(self, expr: Call,
                  *args: Any, **kwargs: Any) -> AbstractResultWithNamedArrays:
         return Call(self.map_function_definition(expr.function, *args, **kwargs),
-                    Map({name: self.rec(bnd, *args, **kwargs)
+                    immutabledict({name: self.rec(bnd, *args, **kwargs)
                          for name, bnd in expr.bindings.items()}),
                     tags=expr.tags,
                     )
@@ -1323,7 +1325,7 @@ class MPMSMaterializer(Mapper):
         new_expr = IndexLambda(expr=expr.expr,
                                shape=expr.shape,
                                dtype=expr.dtype,
-                               bindings=Map({bnd_name: bnd.expr
+                               bindings=immutabledict({bnd_name: bnd.expr
                                 for bnd_name, bnd in sorted(children_rec.items())}),
                                axes=expr.axes,
                                var_to_reduction_descr=expr.var_to_reduction_descr,
@@ -1452,13 +1454,13 @@ class MPMSMaterializer(Mapper):
         new_returns = {name: new_mapper(ret) for name, ret in expr.returns.items()}
         return FunctionDefinition(expr.parameters,
                                   expr.return_type,
-                                  Map(new_returns),
+                                  immutabledict(new_returns),
                                   tags=expr.tags)
 
     @memoize_method
     def map_call(self, expr: Call) -> Call:
         return Call(self.map_function_definition(expr.function),
-                        Map({name: self.rec(bnd).expr
+                        immutabledict({name: self.rec(bnd).expr
                              for name, bnd in expr.bindings.items()}),
                         tags=expr.tags)
 
