@@ -279,10 +279,10 @@ def _do_test_distributed_execution_random_dag(ctx_factory):
             nonlocal comm_tag
             comm_tag += 1
 
-            if comm_tag % 5 == 1:
-                tag = (comm_tag, frozenset([_RandomDAGTag, _RandomDAGTag]))
+            if comm_tag % 5 == 1 or 1:
+                tag = (comm_tag, frozenset([_RandomDAGTag, "a", comm_tag]))
             elif comm_tag % 5 == 2:
-                tag = (comm_tag, (_RandomDAGTag,))
+                tag = (comm_tag, (_RandomDAGTag, "b"))
             else:
                 tag = (comm_tag, _RandomDAGTag)  # noqa: B023
 
