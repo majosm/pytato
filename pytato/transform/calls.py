@@ -320,7 +320,8 @@ class _NamedCallResultReplacerPostConcatenate(CopyMapper):
         super().__init__()
 
     @memoize_method
-    def clone_for_callee(self: _SelfMapper) -> _SelfMapper:
+    def clone_for_callee(
+            self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
         raise AssertionError("Control should not reach here."
                              " Call clone_with_new_call_on_stack instead.")
 
@@ -887,7 +888,8 @@ class _ConcatabilityCollector(CachedWalkMapper):
         self.ary_to_concatenatability[key] = concatenatability
 
     @memoize_method
-    def clone_for_callee(self: _SelfMapper) -> _SelfMapper:
+    def clone_for_callee(
+            self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
         raise AssertionError("Control should not reach here."
                              " Call clone_with_new_call_on_stack instead.")
 
