@@ -85,17 +85,21 @@ def number_distributed_tags(
         assert isinstance(all_tags, list)
         assert len(all_tags) == mpi_communicator.size
 
-        # <<<<<<< HEAD
+        # First previous version
         #        for sym_tag in sorted(all_tags, key=lambda tag: repr(tag)):
         #            sym_tag_to_int_tag[sym_tag] = next_tag
         #            next_tag += 1
-        # =======
-        for sym_tag in flatten(all_tags):  # type: ignore[no-untyped-call]
-            if sym_tag not in sym_tag_to_int_tag:
-                sym_tag_to_int_tag[sym_tag] = next_tag
-                next_tag += 1
-
-        # >>>>>>> inducer/deterministic-mpi_tag-v2
+        #
+        #
+        # Second previous version
+        # for sym_tag in flatten(all_tags):  # type: ignore[no-untyped-call]
+        #    if sym_tag not in sym_tag_to_int_tag:
+        #        sym_tag_to_int_tag[sym_tag] = next_tag
+        #        next_tag += 1
+        # Current main version
+        for sym_tag in all_tags:
+            sym_tag_to_int_tag[sym_tag] = next_tag
+            next_tag += 1
 
         mpi_communicator.bcast((sym_tag_to_int_tag, next_tag), root=root_rank)
     else:
