@@ -884,8 +884,12 @@ class _ConcatabilityCollector(CachedWalkMapper):
 
         if isinstance(concatenatability, ConcatableIfConstant):
             _verify_arrays_same((idx_lambda,) + idx_lambdas_from_other_calls)
-            for ary in idx_lambda.bindings.values():
-                self.rec(ary, concatenatability)
+            for bnd_name in idx_lambda.bindings:
+                self.rec(
+                    idx_lambda.bindings[bnd_name], concatenatability,
+                    tuple(
+                        ary.bindings[bnd_name]
+                        for ary in idx_lambdas_from_other_calls))
         elif isinstance(concatenatability, ConcatableAlongAxis):
             _verify_arrays_can_be_concated_along_axis(
                 (idx_lambda, ) + idx_lambdas_from_other_calls,
