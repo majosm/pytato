@@ -230,6 +230,7 @@ class CallsiteCollector(CombineMapper[FrozenSet[CallSiteLocation]]):
     def map_call(self, expr: Call) -> FrozenSet[CallSiteLocation]:
         new_mapper_for_fn = CallsiteCollector(stack=self.stack + (expr,))
         return self.combine(frozenset([CallSiteLocation(expr, self.stack)]),
+                            *[self.rec(bnd) for bnd in expr.bindings.values()],
                             *[new_mapper_for_fn(ret)
                               for ret in expr.function.returns.values()])
 
