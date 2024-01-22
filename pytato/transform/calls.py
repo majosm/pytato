@@ -386,8 +386,10 @@ class _ScalarExprConcatabilityMapper(scalar_expr.CombineMapper):
         iaxis-axis would be sound only if the binding which is being indexed
         into is same for all the expressions to be concatenated.
     """
-    def __init__(self, iaxis: int, allow_indirect_addr: bool) -> None:
+    def __init__(
+            self, iaxis: int, is_length_1: bool, allow_indirect_addr: bool) -> None:
         self.iaxis = iaxis
+        self.is_length_1 = is_length_1
         self.allow_indirect_addr = allow_indirect_addr
         super().__init__()
 
@@ -436,11 +438,17 @@ class _ScalarExprConcatabilityMapper(scalar_expr.CombineMapper):
                         # case unless the indexee is the same for the
                         # expression graphs being concatenated.
                         pass
+                # FIXME: indent?
                 rec_indices.append(rec_idx)
 
         combined_rec_indices = dict(self.combine(rec_indices))
 
-        if name not in combined_rec_indices:
+        # If iaxis has length 1, the index expression might get dropped and
+        # replaced with 0. If this happens, the code above won't detect the
+        # concatenatability correctly. This can be seen in the grudge wave example
+        # (it occurs intermittently because the code only looks at the first call
+        # site, which makes it dependent on set order). This appears to fix it
+        if not self.is_length_1 and name not in combined_rec_indices:
             combined_rec_indices[name] = ConcatableIfConstant()
 
         return Map(combined_rec_indices)
@@ -449,12 +457,13 @@ class _ScalarExprConcatabilityMapper(scalar_expr.CombineMapper):
 @memoize_on_first_arg
 def _get_binding_to_concatenatability(expr: scalar_expr.ScalarExpression,
                                       iaxis: int,
+                                      is_length_1: bool,
                                       allow_indirect_addr: bool,
                                       ) -> Mapping[str, Concatenatability]:
     """
     Maps *expr* using :class:`_ScalarExprConcatabilityMapper`.
     """
-    mapper = _ScalarExprConcatabilityMapper(iaxis, allow_indirect_addr)
+    mapper = _ScalarExprConcatabilityMapper(iaxis, is_length_1, allow_indirect_addr)
     return mapper(expr)  # type: ignore[no-any-return]
 
 
@@ -648,8 +657,9 @@ class _InputConcatabilityGetter(CachedMapper[ArrayOrNames]):
 
         for iaxis in range(expr.ndim):
             try:
+                is_length_1 = expr.shape[iaxis] == 1
                 bnd_name_to_concat = _get_binding_to_concatenatability(
-                    expr.expr, iaxis, allow_indirect_addr)
+                    expr.expr, iaxis, is_length_1, allow_indirect_addr)
                 expr_concat_to_input_concats[ConcatableAlongAxis(iaxis)] = (
                     tuple(concat
                           for _, concat in sorted(bnd_name_to_concat.items(),
@@ -881,8 +891,10 @@ class _ConcatabilityCollector(CachedWalkMapper):
                 (idx_lambda, ) + idx_lambdas_from_other_calls,
                 ["dtype", "expr"],
                 concatenatability.axis)
+            is_length_1 = idx_lambda.shape[concatenatability.axis] == 1
             bnd_name_to_concat = _get_binding_to_concatenatability(
-                idx_lambda.expr, concatenatability.axis, allow_indirect_addr)
+                idx_lambda.expr, concatenatability.axis, is_length_1,
+                allow_indirect_addr)
             for bnd_name, bnd_concat in bnd_name_to_concat.items():
                 self.rec(idx_lambda.bindings[bnd_name], bnd_concat,
                          tuple(ary.bindings[bnd_name]
