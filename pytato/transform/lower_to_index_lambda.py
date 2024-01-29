@@ -54,6 +54,18 @@ def _get_reshaped_indices(expr: Reshape) -> Tuple[ScalarExpression, ...]:
     if expr.order != "C":
         raise NotImplementedError(expr.order)
 
+    oldnon1shape: List[IntegralT] = [n for n in expr.array.shape if n > 1]
+    newnon1shape: List[IntegralT] = [n for n in expr.shape if n > 1]
+    if newnon1shape == oldnon1shape:
+        oldnon1indices: List[IntegralT] = [
+            i for i, n in enumerate(expr.array.shape) if n > 1]
+        newnon1indices: List[IntegralT] = [
+            i for i, n in enumerate(expr.shape) if n > 1]
+        old_idx_to_new_idx = dict(zip(oldnon1indices, newnon1indices))
+        return tuple(
+            prim.Variable(f"_{old_idx_to_new_idx[i]}") if n > 1 else 0
+            for i, n in enumerate(expr.array.shape))
+
     newstrides: List[IntegralT] = [1]  # reshaped array strides
     for new_axis_len in reversed(expr.shape[1:]):
         assert isinstance(new_axis_len, INT_CLASSES)
