@@ -31,13 +31,16 @@ THE SOFTWARE.
 """
 
 
-from typing import TYPE_CHECKING, Tuple, FrozenSet, Any
+from typing import TYPE_CHECKING, Tuple, FrozenSet, Optional, TypeVar
 
 from pytato.distributed.partition import DistributedGraphPartition
 
 
 if TYPE_CHECKING:
     import mpi4py.MPI
+
+
+T = TypeVar("T")
 
 
 # {{{ construct tag numbering
@@ -73,8 +76,8 @@ def number_distributed_tags(
     from mpi4py import MPI
 
     def set_union(
-            set_a: FrozenSet[Any], set_b: FrozenSet[Any],
-            mpi_data_type: MPI.Datatype) -> FrozenSet[str]:
+            set_a: FrozenSet[T], set_b: FrozenSet[T],
+            mpi_data_type: Optional[MPI.Datatype]) -> FrozenSet[T]:
         assert mpi_data_type is None
         assert isinstance(set_a, frozenset)
         assert isinstance(set_b, frozenset)
