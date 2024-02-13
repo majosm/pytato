@@ -47,7 +47,11 @@ __doc__ = """
 
 .. autofunction:: is_einsum_similar_to_subscript
 
+.. autofunction:: get_node_counts
+
 .. autofunction:: get_num_nodes
+
+.. autofunction:: get_num_node_instances
 
 .. autofunction:: get_num_call_sites
 
@@ -383,51 +387,15 @@ class NodeCountMapper(CachedWalkMapper):
     """
     Counts the number of nodes in a DAG.
 
-    .. attribute:: count
+    .. attribute:: node_type_to_count
 
-       The number of nodes.
+       A mapping from node type to the number of nodes of that type in the DAG.
     """
 
     def __init__(self) -> None:
         super().__init__()
-        self.count = 0
-
-    def get_cache_key(self, expr: ArrayOrNames) -> int:
-        return id(expr)
-
-    def post_visit(self, expr: Any) -> None:
-        self.count += 1
-
-
-def get_num_nodes(outputs: Union[Array, DictOfNamedArrays]) -> int:
-    """Returns the number of nodes in DAG *outputs*."""
-
-    from pytato.codegen import normalize_outputs
-    outputs = normalize_outputs(outputs)
-
-    ncm = NodeCountMapper()
-    ncm(outputs)
-
-    return ncm.count
-
-# }}}
-
-
-# {{{ CallSiteCountMapper
-
-@optimize_mapper(drop_args=True, drop_kwargs=True, inline_get_cache_key=True)
-class CallSiteCountMapper(CachedWalkMapper):
-    """
-    Counts the number of :class:`~pytato.Call` nodes in a DAG.
-
-    .. attribute:: count
-
-       The number of nodes.
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.count = 0
+        from collections import defaultdict
+        self.node_type_to_count = defaultdict(int)
 
     def get_cache_key(self, expr: ArrayOrNames) -> int:
         return id(expr)
@@ -441,25 +409,68 @@ class CallSiteCountMapper(CachedWalkMapper):
         new_mapper = self.clone_for_callee(expr)
         for subexpr in expr.returns.values():
             new_mapper(subexpr, *args, **kwargs)
-        self.count += new_mapper.count
+
+        for node_type, count in new_mapper.node_type_to_count.items():
+            self.node_type_to_count[node_type] += count
 
         self.post_visit(expr, *args, **kwargs)
 
     def post_visit(self, expr: Any) -> None:
-        if isinstance(expr, Call):
-            self.count += 1
+        self.node_type_to_count[type(expr)] += 1
 
 
-def get_num_call_sites(outputs: Union[Array, DictOfNamedArrays]) -> int:
+def get_node_counts(
+        outputs: Union[Array, DictOfNamedArrays]) -> Dict[type[Array], int]:
     """Returns the number of nodes in DAG *outputs*."""
 
     from pytato.codegen import normalize_outputs
     outputs = normalize_outputs(outputs)
 
-    cscm = CallSiteCountMapper()
-    cscm(outputs)
+    ncm = NodeCountMapper()
+    ncm(outputs)
 
-    return cscm.count
+    return ncm.node_type_to_count
+
+
+def get_num_nodes(outputs: Union[Array, DictOfNamedArrays]) -> int:
+    """Returns the number of nodes in DAG *outputs*."""
+
+    from pytato.codegen import normalize_outputs
+    outputs = normalize_outputs(outputs)
+
+    ncm = NodeCountMapper()
+    ncm(outputs)
+
+    return sum(ncm.node_type_to_count.values())
+
+
+def get_num_node_instances(
+        outputs: Union[Array, DictOfNamedArrays],
+        node_type: type[Array],
+        strict: bool = True) -> int:
+    """
+    Returns the number of nodes in DAG *outputs* that have type *node_type* (if
+    *strict* is `True`) or are instances of *node_type* (if *strict* is `False`).
+    """
+
+    from pytato.codegen import normalize_outputs
+    outputs = normalize_outputs(outputs)
+
+    ncm = NodeCountMapper(node_type)
+    ncm(outputs)
+
+    if strict:
+        return ncm.node_type_to_count[node_type]
+    else:
+        return sum(
+            count
+            for nt, count in ncm.node_type_to_count
+            if isinstance(nt, node_type))
+
+
+def get_num_call_sites(outputs: Union[Array, DictOfNamedArrays]) -> int:
+    """Returns the number of :class:`pytato.Call` nodes in DAG *outputs*."""
+    return get_num_node_instances(outputs, node_type=Call, strict=False)
 
 # }}}
 
