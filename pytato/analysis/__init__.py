@@ -382,8 +382,7 @@ class DirectPredecessorsGetter(Mapper):
 
 # {{{ NodeCountMapper
 
-@optimize_mapper(drop_args=True, drop_kwargs=True, inline_get_cache_key=True)
-class NodeCountMapper(CachedWalkMapper):
+class _NodeCountMapperBase(CachedWalkMapper):
     """
     Counts the number of nodes in a DAG.
 
@@ -396,9 +395,6 @@ class NodeCountMapper(CachedWalkMapper):
         super().__init__()
         from collections import defaultdict
         self.node_type_to_count = defaultdict(int)
-
-    def get_cache_key(self, expr: ArrayOrNames) -> int:
-        return id(expr)
 
     @memoize_method
     def map_function_definition(self, /, expr: FunctionDefinition,
@@ -419,26 +415,61 @@ class NodeCountMapper(CachedWalkMapper):
         self.node_type_to_count[type(expr)] += 1
 
 
+@optimize_mapper(drop_args=True, drop_kwargs=True, inline_get_cache_key=True)
+class NodeCountMapper(_NodeCountMapperBase):
+    """
+    Counts the number of nodes in a DAG.
+
+    .. attribute:: count
+
+       The number of nodes.
+    """
+    def get_cache_key(self, expr: ArrayOrNames) -> int:
+        return id(expr)
+
+
+@optimize_mapper(drop_args=True, drop_kwargs=True, inline_get_cache_key=True)
+class MergedNodeCountMapper(_NodeCountMapperBase):
+    """
+    Counts the number of nodes in a DAG.
+
+    .. attribute:: count
+
+       The number of nodes.
+    """
+    def get_cache_key(self, expr: ArrayOrNames) -> ArrayOrNames:
+        return expr
+
+
 def get_node_counts(
-        outputs: Union[Array, DictOfNamedArrays]) -> Dict[type[Array], int]:
+        outputs: Union[Array, DictOfNamedArrays],
+        merge_equal: bool = False) -> Dict[type[Array], int]:
     """Returns the number of nodes in DAG *outputs*."""
 
     from pytato.codegen import normalize_outputs
     outputs = normalize_outputs(outputs)
 
-    ncm = NodeCountMapper()
+    if merge_equal:
+        ncm = MergedNodeCountMapper()
+    else:
+        ncm = NodeCountMapper()
     ncm(outputs)
 
     return ncm.node_type_to_count
 
 
-def get_num_nodes(outputs: Union[Array, DictOfNamedArrays]) -> int:
+def get_num_nodes(
+        outputs: Union[Array, DictOfNamedArrays],
+        merge_equal: bool = False) -> int:
     """Returns the number of nodes in DAG *outputs*."""
 
     from pytato.codegen import normalize_outputs
     outputs = normalize_outputs(outputs)
 
-    ncm = NodeCountMapper()
+    if merge_equal:
+        ncm = MergedNodeCountMapper()
+    else:
+        ncm = NodeCountMapper()
     ncm(outputs)
 
     return sum(ncm.node_type_to_count.values())
