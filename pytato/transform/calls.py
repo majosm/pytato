@@ -995,12 +995,54 @@ class _ConcatabilityCollector(CachedWalkMapper):
                          " rewrite the operation as array operations?")
 
 
-class _Concatenator(Mapper):
+# Memoize the creation of concatenated input arrays to avoid copies
+class _InputConcatenator:
+    @memoize_method
+    def __call__(self, arrays, axis):
+        return concatenate(
+                arrays,
+                axis
+            ).with_tagged_axis(axis, frozenset({UseInputAxis(0, axis)}))
+
+
+# Memoize the creation of sliced output arrays to avoid copies
+class _OutputSlicer:
+    @memoize_method
+    def _get_slice(
+            self,
+            ary: Array,
+            axis: int,
+            start_idx: ShapeComponent,
+            end_idx: ShapeComponent):
+        indices = [slice(None) for i in range(ary.ndim)]
+        indices[axis] = slice(start_idx, end_idx)
+        sliced_ary = ary[tuple(indices)].with_tagged_axis(
+            axis, frozenset({UseInputAxis(None, axis)}))
+        assert isinstance(sliced_ary, BasicIndex)
+        return sliced_ary
+
+    def __call__(self, ary, axis, slice_sizes):
+        start_indices: List[ShapeComponent] = []
+        end_indices: List[ShapeComponent] = []
+        if len(slice_sizes) > 0:
+            start_indices.append(0)
+            end_indices.append(slice_sizes[0])
+            for islice in range(1, len(slice_sizes)):
+                start_indices.append(end_indices[-1])
+                end_indices.append(end_indices[-1] + slice_sizes[islice])
+        return [
+            self._get_slice(ary, axis, start_idx, end_idx)
+            for start_idx, end_idx in zip(start_indices, end_indices)]
+
+
+class _FunctionConcatenator(Mapper):
     def __init__(self,
                  current_stack: Tuple[Call, ...],
+                 input_concatenator: _InputConcatenator,
                  ary_to_concatenatability: Map[ArrayOnStackT, Concatenatability],
                  ) -> None:
         self.current_stack = current_stack
+        self.input_concatenator = input_concatenator
         self.ary_to_concatenatability = ary_to_concatenatability
 
         self._cache: Dict[Tuple[Array, Tuple[Array, ...]], Array] = {}
@@ -1019,9 +1061,10 @@ class _Concatenator(Mapper):
             return result
 
     @memoize_method
-    def clone_with_new_call_on_stack(self, expr: Call) -> _Concatenator:
-        return _Concatenator(
+    def clone_with_new_call_on_stack(self, expr: Call) -> _FunctionConcatenator:
+        return _FunctionConcatenator(
             self.current_stack + (expr,),
+            self.input_concatenator,
             self.ary_to_concatenatability,
         )
 
@@ -1055,10 +1098,8 @@ class _Concatenator(Mapper):
         if isinstance(concat, ConcatableIfConstant):
             return expr
         elif isinstance(concat, ConcatableAlongAxis):
-            return concatenate(
-                    (expr,) + exprs_from_other_calls, concat.axis
-                ).with_tagged_axis(
-                    concat.axis, frozenset({UseInputAxis(0, concat.axis)}))
+            return self.input_concatenator(
+                (expr,) + exprs_from_other_calls, concat.axis)
         else:
             raise NotImplementedError(type(concat))
 
@@ -1448,13 +1489,16 @@ def _get_replacement_map_post_concatenating(call_sites: Sequence[Call],
 
     template_call_site, *other_call_sites = call_sites
 
-    concatenator = _Concatenator(current_stack=(),
-                                 ary_to_concatenatability=ary_to_concatenatability)
+    input_concatenator = _InputConcatenator()
+
+    function_concatenator = _FunctionConcatenator(
+        current_stack=(), input_concatenator=input_concatenator,
+        ary_to_concatenatability=ary_to_concatenatability)
 
     # new_returns: concatenated function body
     new_returns: Dict[str, Array] = {}
     for output_name in template_call_site.keys():
-        new_returns[output_name] = concatenator(
+        new_returns[output_name] = function_concatenator(
             template_call_site.function.returns[output_name],
             tuple(csite.function.returns[output_name]
                   for csite in other_call_sites))
@@ -1473,17 +1517,23 @@ def _get_replacement_map_post_concatenating(call_sites: Sequence[Call],
 
     new_call_bindings: Dict[str, Array] = {}
 
+    concat_binding_cache: Dict[Tuple[Array], Array] = {}
+
     # construct new bindings
     for param_name in template_call_site.bindings:
         param_placeholder = template_call_site.function.get_placeholder(param_name)
         param_concat = ary_to_concatenatability[((), param_placeholder)]
         if isinstance(param_concat, ConcatableAlongAxis):
-            new_binding = concatenate([csite.bindings[param_name]
-                                              for csite in call_sites],
-                                             param_concat.axis
-                              ).with_tagged_axis(
-                                  param_concat.axis,
-                                  frozenset({UseInputAxis(0, param_concat.axis)}))
+            param_bindings = tuple([
+                csite.bindings[param_name]
+                for csite in call_sites])
+            try:
+                new_binding = concat_binding_cache[param_bindings]
+            except KeyError:
+                new_binding = input_concatenator(
+                    param_bindings,
+                    param_concat.axis)
+                concat_binding_cache[param_bindings] = new_binding
         elif isinstance(param_concat, ConcatableIfConstant):
             _verify_arrays_same([csite.bindings[param_name]
                                  for csite in call_sites])
@@ -1498,30 +1548,27 @@ def _get_replacement_map_post_concatenating(call_sites: Sequence[Call],
         bindings=Map(new_call_bindings),
         tags=template_call_site.tags)
 
+    output_slicer = _OutputSlicer()
+
     # slice into new_call's outputs to replace the old expressions.
     for output_name, output_ary in (template_call_site
                                     .function
                                     .returns
                                     .items()):
-        start_idx: ShapeComponent = 0
-        for cs in call_sites:
-            concat = ary_to_concatenatability[((), output_ary)]
-            if isinstance(concat, ConcatableIfConstant):
-                result[cs[output_name]] = new_call[output_name]
-            elif isinstance(concat, ConcatableAlongAxis):
-                ndim = output_ary.ndim
-                indices = [slice(None) for i in range(ndim)]
-                indices[concat.axis] = slice(
-                    start_idx, start_idx+cs[output_name].shape[concat.axis])
-
-                sliced_output = new_call[output_name][tuple(indices)]
-                sliced_output = sliced_output.with_tagged_axis(
-                    concat.axis, frozenset({UseInputAxis(None, concat.axis)}))
-                assert isinstance(sliced_output, BasicIndex)
-                result[cs[output_name]] = sliced_output
-                start_idx = start_idx + cs[output_name].shape[concat.axis]
-            else:
-                raise NotImplementedError(type(concat))
+        concat = ary_to_concatenatability[((), output_ary)]
+        new_return = new_call[output_name]
+        if isinstance(concat, ConcatableIfConstant):
+            for cs in call_sites:
+                result[cs[output_name]] = new_return
+        elif isinstance(concat, ConcatableAlongAxis):
+            slice_sizes = [
+                cs[output_name].shape[concat.axis]
+                for cs in call_sites]
+            output_slices = output_slicer(new_return, concat.axis, slice_sizes)
+            for cs, output_slice in zip(call_sites, output_slices):
+                result[cs[output_name]] = output_slice
+        else:
+            raise NotImplementedError(type(concat))
 
     return Map(result)
 
