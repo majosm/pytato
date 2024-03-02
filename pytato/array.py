@@ -1488,6 +1488,7 @@ class Reshape(IndexRemappingBase):
 
     if __debug__:
         def __attrs_post_init__(self) -> None:
+            assert self.non_equality_tags
             super().__attrs_post_init__()
 
     @property
