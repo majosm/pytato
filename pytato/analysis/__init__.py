@@ -53,6 +53,10 @@ __doc__ = """
 
 .. autofunction:: get_num_node_instances
 
+.. autofunction:: get_outlined_node_counts
+
+.. autofunction:: get_outlined_nodes
+
 .. autofunction:: get_num_call_sites
 
 .. autofunction:: collect_nodes_of_type
@@ -481,6 +485,7 @@ def get_num_nodes(
     return sum(ncm.node_type_to_count.values())
 
 
+
 def get_num_node_instances(
         outputs: Union[Array, DictOfNamedArrays],
         node_type: type[Array],
@@ -509,6 +514,90 @@ def get_num_node_instances(
 def get_num_call_sites(outputs: Union[Array, DictOfNamedArrays]) -> int:
     """Returns the number of :class:`pytato.Call` nodes in DAG *outputs*."""
     return get_num_node_instances(outputs, node_type=Call, strict=False)
+
+# }}}
+
+
+# {{{ OutlinedNodeCountMapper
+
+# FIXME: Change this to count nodes in tagged subexpressions instead?
+
+class OutlinedNodeCountMapper(CachedWalkMapper):
+    """
+    Counts the number of nodes inside outlined functions in a DAG.
+
+    .. attribute:: node_type_to_count
+
+       A mapping from node type to the number of nodes of that type in the outlined
+       functions of the DAG.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        from collections import defaultdict
+        self.node_type_to_count = defaultdict(int)
+
+    def get_cache_key(self, expr: ArrayOrNames) -> int:
+        return id(expr)
+
+    @memoize_method
+    def map_function_definition(self, /, expr: FunctionDefinition,
+                                *args: Any, **kwargs: Any) -> None:
+        if not self.visit(expr):
+            return
+
+        new_mapper = self.clone_for_callee(expr)
+        for subexpr in expr.returns.values():
+            new_mapper(subexpr, *args, **kwargs)
+
+        for node_type, count in new_mapper.node_type_to_count.items():
+            self.node_type_to_count[node_type] += count
+
+        self.post_visit(expr, *args, **kwargs)
+
+    def map_call(self, expr: Call, *args: Any, **kwargs: Any) -> None:
+        if not self.visit(expr):
+            return
+
+        ncm = NodeCountMapper()
+        for ret in expr.function.returns.values():
+            ncm(ret)
+
+        for node_type, count in ncm.node_type_to_count.items():
+            self.node_type_to_count[node_type] += count
+
+        self.map_function_definition(expr.function)
+        for bnd in expr.bindings.values():
+            if isinstance(bnd, Array):
+                self.rec(bnd)
+
+        self.post_visit(expr)
+
+
+def get_outlined_node_counts(
+        outputs: Union[Array, DictOfNamedArrays]) -> Dict[type[Array], int]:
+    """Returns the number of outlined nodes in DAG *outputs*."""
+
+    from pytato.codegen import normalize_outputs
+    outputs = normalize_outputs(outputs)
+
+    oncm = OutlinedNodeCountMapper()
+    oncm(outputs)
+
+    return oncm.node_type_to_count
+
+
+def get_num_outlined_nodes(
+        outputs: Union[Array, DictOfNamedArrays]) -> int:
+    """Returns the number of outlined nodes in DAG *outputs*."""
+
+    from pytato.codegen import normalize_outputs
+    outputs = normalize_outputs(outputs)
+
+    oncm = OutlinedNodeCountMapper()
+    oncm(outputs)
+
+    return sum(oncm.node_type_to_count.values())
 
 # }}}
 
