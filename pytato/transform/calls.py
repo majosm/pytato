@@ -644,13 +644,13 @@ def _combine_named_result_accs(
     :class:`FunctionDefinition` and returns a :class:`tuple` of the valid
     concatenatable constraints.
     """
-    potential_concatenatable_ouptut_axes = itertools.product(*[
+    potential_concatenatable_output_axes = itertools.product(*[
         [(name, concat) for concat in acc.input_concatability]
         for name, acc in named_result_accs.items()])
 
     valid_concatenatabilities: List[FunctionConcatenability] = []
 
-    for output_concats in potential_concatenatable_ouptut_axes:
+    for output_concats in potential_concatenatable_output_axes:
         is_concatenatable = True
         input_concatability: Dict[InputArgumentBase, Concatenatability] = {}
 
