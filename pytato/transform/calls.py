@@ -788,18 +788,21 @@ def _verify_arrays_can_be_concated_along_axis(
         are being checked for concatenation along *iaxis*.
     """
     if not _have_same_axis_length_except(arrays, iaxis):
-        raise _InvalidConcatenatability("Cannot be concatenate the calls.")
+        raise _InvalidConcatenatability(
+            "Cannot concatenate the calls; axis lengths are incompatible.")
     if len({ary.__class__ for ary in arrays}) != 1:
-        raise _InvalidConcatenatability("Cannot be concatenate the calls.")
+        raise _InvalidConcatenatability(
+            "Cannot concatenate the calls; arrays have different types.")
     for field in fields_that_must_be_same:
         if len({getattr(ary, field) for ary in arrays}) != 1:
-            raise _InvalidConcatenatability("Cannot be concatenate the calls.")
+            raise _InvalidConcatenatability(
+                "Cannot be concatenate the calls; required fields are not the same.")
 
 
 def _verify_arrays_same(arrays: Collection[Array]) -> None:
     if len(set(arrays)) != 1:
         raise _InvalidConcatenatability("Cannot be concatenated as arrays across "
-                                        " functions is not the same.")
+                                        "functions are not the same.")
 
 
 def _get_concatenated_shape(arrays: Collection[Array], iaxis: int) -> ShapeType:
