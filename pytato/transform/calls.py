@@ -1023,7 +1023,8 @@ class _Concatenator(Mapper):
                                dtype=expr.dtype,
                                shape=new_shape,
                                tags=expr.tags,
-                               axes=expr.axes)
+                               axes=expr.axes,
+                               non_equality_tags=expr.non_equality_tags)
         else:
             raise NotImplementedError(type(concat))
 
@@ -1067,7 +1068,8 @@ class _Concatenator(Mapper):
                                bindings=Map(new_bindings),
                                var_to_reduction_descr=expr.var_to_reduction_descr,
                                tags=expr.tags,
-                               axes=expr.axes)
+                               axes=expr.axes,
+                               non_equality_tags=expr.non_equality_tags)
         else:
             raise NotImplementedError(type(concat))
 
@@ -1093,7 +1095,7 @@ class _Concatenator(Mapper):
                           expr.index_to_access_descr,
                           tags=expr.tags,
                           axes=expr.axes,
-                          )
+                          non_equality_tags=expr.non_equality_tags)
         else:
             raise NotImplementedError(type(concat))
 
@@ -1123,7 +1125,8 @@ class _Concatenator(Mapper):
             return type(expr)(array=new_array,
                               indices=tuple(new_indices),
                               tags=expr.tags,
-                              axes=expr.axes)
+                              axes=expr.axes,
+                              non_equality_tags=expr.non_equality_tags)
         else:
             raise NotImplementedError(type(concat))
 
@@ -1151,7 +1154,8 @@ class _Concatenator(Mapper):
                         shift=expr.shift,
                         axis=expr.axis,
                         tags=expr.tags,
-                        axes=expr.axes)
+                        axes=expr.axes,
+                        non_equality_tags=expr.non_equality_tags)
         else:
             raise NotImplementedError(type(concat))
 
@@ -1182,7 +1186,8 @@ class _Concatenator(Mapper):
             return Stack(new_arrays,
                          expr.axis,
                          tags=expr.tags,
-                         axes=expr.axes)
+                         axes=expr.axes,
+                         non_equality_tags=expr.non_equality_tags)
         else:
             raise NotImplementedError(type(concat))
 
@@ -1215,7 +1220,8 @@ class _Concatenator(Mapper):
             return Concatenate(new_arrays,
                                expr.axis,
                                tags=expr.tags,
-                               axes=expr.axes)
+                               axes=expr.axes,
+                               non_equality_tags=expr.non_equality_tags)
         else:
             raise NotImplementedError(type(concat))
 
@@ -1238,7 +1244,8 @@ class _Concatenator(Mapper):
             return AxisPermutation(new_array,
                                    expr.axis_permutation,
                                    tags=expr.tags,
-                                   axes=expr.axes)
+                                   axes=expr.axes,
+                                   non_equality_tags=expr.non_equality_tags)
         else:
             raise NotImplementedError(type(concat))
 
@@ -1264,7 +1271,8 @@ class _Concatenator(Mapper):
                            new_newshape,
                            expr.order,
                            tags=expr.tags,
-                           axes=expr.axes)
+                           axes=expr.axes,
+                           non_equality_tags=expr.non_equality_tags)
         else:
             raise NotImplementedError(type(concat))
 
