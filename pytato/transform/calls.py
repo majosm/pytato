@@ -922,6 +922,7 @@ class _ConcatabilityCollector(CachedWalkMapper):
         if isinstance(concatenatability, ConcatableIfConstant):
             _verify_arrays_same((expr,) + exprs_from_other_calls)
         elif isinstance(concatenatability, ConcatableAlongAxis):
+            # FIXME: Probably needs some extra handling for broadcastable arrays
             _verify_arrays_can_be_concated_along_axis(
                 (expr,) + exprs_from_other_calls,
                 ["dtype", "name"],
