@@ -1773,6 +1773,137 @@ class InputGatherer(CombineMapper[FrozenSet[InputArgumentBase]]):
 # }}}
 
 
+# {{{ precompute_subexpressions
+
+# FIXME: Think about what happens when subexpressions contain outlined functions
+class _PrecomputableSubexpressionGatherer(CombineMapper[FrozenSet[Array]]):
+    """
+    Mapper to find subexpressions that do not depend on any placeholders.
+    """
+    def rec(self, expr: ArrayOrNames) -> CombineT:  # type: ignore
+        if expr in self.cache:
+            return self.cache[expr]
+        result: CombineT = Mapper.rec(self, expr)
+        if not isinstance(expr, (
+                Placeholder,
+                DictOfNamedArrays,
+                Call)):
+            from pytato.analysis import DirectPredecessorsGetter
+            if result == DirectPredecessorsGetter()(expr):
+                result = frozenset({expr})
+        self.cache[expr] = result
+        return result
+
+    # type-ignore reason: incompatible ret. type with super class
+    def __call__(self, expr: ArrayOrNames) -> CombineT:  # type: ignore
+        subexprs = self.rec(expr)
+
+        # Need to treat data arrays as precomputable during recursion, but afterwards
+        # we only care about larger expressions containing them *or* their shape if
+        # it's a non-constant expression
+        # FIXME: Does it even make sense for a data array to have an expression as
+        # a shape? Maybe this isn't necessary...
+
+        data_subexprs = {
+            ary
+            for ary in subexprs
+            if isinstance(ary, (DataWrapper, DistributedRecv))}
+
+        subexprs -= data_subexprs
+
+        for ary in data_subexprs:
+            subexprs |= self.combine(*self.rec_idx_or_size_tuple(ary.shape))
+
+        return subexprs
+
+    def combine(self, *args: FrozenSet[Array]) -> FrozenSet[Array]:
+        from functools import reduce
+        return reduce(lambda a, b: a | b, args, frozenset())
+
+    def map_function_definition(self, expr: FunctionDefinition) -> CombineT:
+        # FIXME: Ignoring subexpressions inside function definitions for now
+        return frozenset()
+
+    def map_call(self, expr: Call) -> CombineT:
+        rec_fn = self.map_function_definition(expr.function)
+        assert not rec_fn
+        rec_bindings = immutabledict({
+            name: self.rec(bnd) if isinstance(bnd, Array) else frozenset({bnd})
+            for name, bnd in expr.bindings.items()})
+        if all(
+                rec_bindings[name] == frozenset({expr.bindings[name]})
+                for name in expr.bindings):
+            return frozenset({expr})
+        else:
+            return self.combine(rec_fn, *rec_bindings.values())
+
+
+class _PrecomputableSubexpressionReplacer(CopyMapper):
+    """
+    Mapper to replace precomputable subexpressions found by
+    :class:`_PrecomputableSubexpressionGatherer` with the evaluated versions.
+    """
+    def __init__(
+            self,
+            replacement_map: Mapping[Array, Array],
+            _function_cache: _FunctionCacheT | None = None
+            ) -> None:
+        super().__init__(_function_cache=_function_cache)
+        self.replacement_map = replacement_map
+
+    def rec(self, expr: ArrayOrNames) -> ArrayOrNames:
+        key = self._cache.get_key(expr)
+        try:
+            return self._cache_retrieve(expr, key=key)
+        except KeyError:
+            result = self.replacement_map.get(expr, None)
+            if result is not None:
+                result = self.rec(result)
+            else:
+                result = Mapper.rec(self, expr)
+            return self._cache_add(expr, result, key=key)
+
+    def clone_for_callee(
+            self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
+        # type-ignore-reason: self.__init__ has a different function signature
+        # than Mapper.__init__
+        return type(self)(  # type: ignore[call-arg]
+            {},
+            _function_cache=self._function_cache)  # type: ignore[attr-defined]
+
+
+def precompute_subexpressions(
+        expr: ArrayOrNames,
+        eval_func: Callable[ArrayOrNames]) -> ArrayOrNames:
+    """Evaluate subexpressions in *expr* that do not depend on any placeholders."""
+    precomputable_subexprs = _PrecomputableSubexpressionGatherer()(expr)
+    for subexpr in precomputable_subexprs:
+        from pytato.analysis import get_num_nodes
+        nnodes = get_num_nodes(subexpr)
+        if nnodes > 1:
+            print(
+                "Found precomputable subexpression of type "
+                f"{type(subexpr).__name__} with {nnodes} nodes.")
+    # FIXME: Assemble into DictOfNamedArrays and evaluate all in one go? Might be a
+    # lot of overhead otherwise
+    dedup = Deduplicator()
+    subexpr_to_evaled_subexpr = {
+        subexpr: dedup(eval_func(subexpr))
+        for subexpr in precomputable_subexprs}
+    return _PrecomputableSubexpressionReplacer(subexpr_to_evaled_subexpr)(expr)
+    # from pytato.array import make_dict_of_named_arrays
+    # precomputable_subexprs_dict = make_dict_of_named_arrays({
+    #     f"_{i}": subexpr
+    #     for i, subexpr in enumerate(precomputable_subexprs)})
+    # evaled_subexprs_dict = eval_func(precomputable_subexprs_dict)
+    # subexpr_to_evaled_subexpr = {
+    #     subexpr: evaled_subexprs_dict._data[f"_{i}"]
+    #     for i, subexpr in enumerate(precomputable_subexprs)}
+    # return _PrecomputableSubexpressionReplacer(subexpr_to_evaled_subexpr)(expr)
+
+# }}}
+
+
 # {{{ SizeParamGatherer
 
 class SizeParamGatherer(CombineMapper[FrozenSet[SizeParam]]):
