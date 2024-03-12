@@ -1359,7 +1359,6 @@ class _Concatenator(Mapper):
         else:
             raise NotImplementedError(type(concat))
 
-    @memoize_method
     def map_call(self, expr: Call, other_callsites: Tuple[Call, ...]) -> Call:
         new_bindings = {name: self.rec(bnd,
                                        tuple(callsite.bindings[name]
@@ -1394,7 +1393,7 @@ class _Concatenator(Mapper):
             assert all(isinstance(ary, NamedCallResult)
                        for ary in exprs_from_other_calls)
             assert isinstance(expr._container, Call)
-            new_call = self.map_call(
+            new_call = self.rec(
                 expr._container,
                 tuple(ary._container  # type: ignore[attr-defined]
                       for ary in exprs_from_other_calls))
