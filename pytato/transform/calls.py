@@ -54,7 +54,7 @@ from immutables import Map
 from pytools import memoize_method, memoize_on_first_arg
 
 from pytato.function import Call, NamedCallResult, FunctionDefinition
-from pytato.tags import InlineCallTag
+from pytato.tags import InlineCallTag, UseInputAxis
 from pytato.utils import are_shape_components_equal
 import logging
 logger = logging.getLogger(__name__)
@@ -1054,7 +1054,10 @@ class _Concatenator(Mapper):
         if isinstance(concat, ConcatableIfConstant):
             return expr
         elif isinstance(concat, ConcatableAlongAxis):
-            return concatenate((expr,) + exprs_from_other_calls, concat.axis)
+            return concatenate(
+                    (expr,) + exprs_from_other_calls, concat.axis
+                ).with_tagged_axis(
+                    concat.axis, frozenset({UseInputAxis(0, concat.axis)}))
         else:
             raise NotImplementedError(type(concat))
 
@@ -1477,7 +1480,10 @@ def _get_replacement_map_post_concatenating(call_sites: Sequence[Call],
         if isinstance(param_concat, ConcatableAlongAxis):
             new_binding = concatenate([csite.bindings[param_name]
                                               for csite in call_sites],
-                                             param_concat.axis)
+                                             param_concat.axis
+                              ).with_tagged_axis(
+                                  param_concat.axis,
+                                  frozenset({UseInputAxis(0, param_concat.axis)}))
         elif isinstance(param_concat, ConcatableIfConstant):
             _verify_arrays_same([csite.bindings[param_name]
                                  for csite in call_sites])
@@ -1509,6 +1515,8 @@ def _get_replacement_map_post_concatenating(call_sites: Sequence[Call],
                     start_idx, start_idx+cs[output_name].shape[concat.axis])
 
                 sliced_output = new_call[output_name][tuple(indices)]
+                sliced_output = sliced_output.with_tagged_axis(
+                    concat.axis, frozenset({UseInputAxis(None, concat.axis)}))
                 assert isinstance(sliced_output, BasicIndex)
                 result[cs[output_name]] = sliced_output
                 start_idx = start_idx + cs[output_name].shape[concat.axis]

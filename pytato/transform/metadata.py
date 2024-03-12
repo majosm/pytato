@@ -49,6 +49,7 @@ from pytato.array import (InputArgumentBase, Stack, Concatenate, IndexLambda,
                           AbstractResultWithNamedArrays, ArrayOrScalar,
                           EinsumReductionAxis)
 from pytato.function import NamedCallResult
+from pytato.tags import UseInputAxis
 from pytato.distributed.nodes import DistributedRecv, DistributedSendRefHolder
 from pytato.utils import are_shape_components_equal, are_shapes_equal
 from pytato.raising import (index_lambda_to_high_level_op,
@@ -306,7 +307,15 @@ class AxesTagsEquationCollector(Mapper):
         for ary in expr.arrays:
             assert ary.ndim == expr.ndim
             for iaxis in range(expr.ndim):
-                if iaxis != expr.axis:
+                if iaxis == expr.axis:
+                    use_input_axis_tags = expr.axes[iaxis].tags_of_type(
+                        UseInputAxis)
+                    if use_input_axis_tags:
+                        tag, = use_input_axis_tags
+                        self.record_equation(
+                            self.get_var_for_axis(expr.arrays[tag.key], tag.axis),
+                            self.get_var_for_axis(expr, iaxis))
+                else:
                     # non-concatenated axes share the dimensions.
                     self.record_equation(
                         self.get_var_for_axis(ary, iaxis),
@@ -349,7 +358,14 @@ class AxesTagsEquationCollector(Mapper):
                 pass
             else:
                 assert isinstance(idx, NormalizedSlice)
-                if (idx.step == 1
+                use_input_axis_tags = expr.axes[i_out_axis].tags_of_type(
+                    UseInputAxis)
+                if use_input_axis_tags:
+                    tag, = use_input_axis_tags
+                    self.record_equation(
+                        self.get_var_for_axis(expr.array, tag.axis),
+                        self.get_var_for_axis(expr, i_out_axis))
+                elif (idx.step == 1
                         and are_shape_components_equal(idx.start, 0)
                         and are_shape_components_equal(idx.stop,
                                                        expr.array.shape[i_in_axis])):

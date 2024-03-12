@@ -14,6 +14,7 @@ Pre-Defined Tags
 .. autoclass:: FunctionIdentifier
 .. autoclass:: CallImplementationTag
 .. autoclass:: InlineCallTag
+.. autoclass:: UseInputAxis
 """
 
 from typing import Tuple, Hashable, Optional
@@ -228,3 +229,13 @@ class InlineCallTag(CallImplementationTag):
     A :class:`CallImplementationTag` that directs the
     :class:`pytato.target.Target` to inline the call site.
     """
+
+
+@dataclass(frozen=True)
+class UseInputAxis(UniqueTag):
+    """
+    A placeholder axis tag indicating that an array should derive tags from one of
+    its inputs.
+    """
+    key: Hashable
+    axis: int
