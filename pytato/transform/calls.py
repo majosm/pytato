@@ -1537,12 +1537,12 @@ def concatenate_calls(expr: ArrayOrNames,
                            for callsite in all_call_sites
                            if call_site_filter(callsite)}
 
-    if not filtered_call_sites:
+    if len(filtered_call_sites) <= 1:
         if err_if_no_calls:
-            raise ValueError("No calls to concatenate.")
+            raise ValueError("Not enough calls to concatenate.")
         elif warn_if_no_calls:
             from warnings import warn
-            warn("No calls to concatenate.", stacklevel=2)
+            warn("Not enough calls to concatenate.", stacklevel=2)
         else:
             pass
         return expr
