@@ -1668,6 +1668,21 @@ def concatenate_calls(expr: ArrayOrNames,
         raise ValueError("Call-sites to concatenate are called"
                          " at multiple stack frames. This is not allowed.")
 
+    if __debug__:
+        from pytato.equality import SimilarityComparer
+        template_function = next(iter(filtered_call_sites)).call.function
+        for csite in filtered_call_sites:
+            other_function = csite.call.function
+            if not (
+                    other_function.returns.keys() == template_function.returns.keys()
+                    and all(
+                        SimilarityComparer()(
+                            template_function.returns[name],
+                            other_function.returns[name])
+                        for name in template_function.returns)):
+                raise AssertionError(
+                    "Call sites to concatenate are not structurally similar.")
+
     old_expr_to_new_expr_map = (
         _get_replacement_map_post_concatenating([csite.call
                                                  for csite in filtered_call_sites]))
