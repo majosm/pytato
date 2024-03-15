@@ -644,6 +644,8 @@ def _combine_named_result_accs(
     :class:`FunctionDefinition` and returns a :class:`tuple` of the valid
     concatenatable constraints.
     """
+    # FIXME: Find a better way to do this. The number of candidates explodes when
+    # the function being concatenated has more than a few outputs
     potential_concatenatable_output_axes = itertools.product(*[
         [(name, concat) for concat in acc.input_concatability]
         for name, acc in named_result_accs.items()])
