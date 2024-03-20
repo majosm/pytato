@@ -54,7 +54,9 @@ from immutables import Map
 from pytools import memoize_method, memoize_on_first_arg
 
 from pytato.function import Call, NamedCallResult, FunctionDefinition
-from pytato.tags import InlineCallTag, UseInputAxis
+from pytato.tags import (
+    InlineCallTag, UseInputAxis, ConcatenatedCallInputConcatAxisTag,
+    ConcatenatedCallOutputSliceAxisTag)
 from pytato.utils import are_shape_components_equal
 import logging
 logger = logging.getLogger(__name__)
@@ -999,16 +1001,26 @@ class _ConcatabilityCollector(CachedWalkMapper):
 
 # Memoize the creation of concatenated input arrays to avoid copies
 class _InputConcatenator:
+    def __init__(self, inherit_axes: bool):
+        self.inherit_axes = inherit_axes
+
     @memoize_method
     def __call__(self, arrays, axis):
+        if self.inherit_axes:
+            concat_axis_tag = UseInputAxis(0, axis)
+        else:
+            concat_axis_tag = ConcatenatedCallInputConcatAxisTag()
         return concatenate(
                 arrays,
                 axis
-            ).with_tagged_axis(axis, frozenset({UseInputAxis(0, axis)}))
+            ).with_tagged_axis(axis, frozenset({concat_axis_tag}))
 
 
 # Memoize the creation of sliced output arrays to avoid copies
 class _OutputSlicer:
+    def __init__(self, inherit_axes: bool):
+        self.inherit_axes = inherit_axes
+
     @memoize_method
     def _get_slice(
             self,
@@ -1018,8 +1030,12 @@ class _OutputSlicer:
             end_idx: ShapeComponent):
         indices = [slice(None) for i in range(ary.ndim)]
         indices[axis] = slice(start_idx, end_idx)
+        if self.inherit_axes:
+            slice_axis_tag = UseInputAxis(None, axis)
+        else:
+            slice_axis_tag = ConcatenatedCallOutputSliceAxisTag()
         sliced_ary = ary[tuple(indices)].with_tagged_axis(
-            axis, frozenset({UseInputAxis(None, axis)}))
+            axis, frozenset({slice_axis_tag}))
         assert isinstance(sliced_ary, BasicIndex)
         return sliced_ary
 
@@ -1457,9 +1473,9 @@ def _get_ary_to_concatenatabilities(call_sites: Sequence[Call],
             yield Map(collector.ary_to_concatenatability)
 
 
-def _get_replacement_map_post_concatenating(call_sites: Sequence[Call],
-                                            ) -> Mapping[NamedCallResult,
-                                                         Array]:
+def _get_replacement_map_post_concatenating(
+        call_sites: Sequence[Call],
+        inherit_axes: bool) -> Mapping[NamedCallResult, Array]:
     """
     .. note::
 
@@ -1491,7 +1507,7 @@ def _get_replacement_map_post_concatenating(call_sites: Sequence[Call],
 
     template_call_site, *other_call_sites = call_sites
 
-    input_concatenator = _InputConcatenator()
+    input_concatenator = _InputConcatenator(inherit_axes=inherit_axes)
 
     function_concatenator = _FunctionConcatenator(
         current_stack=(), input_concatenator=input_concatenator,
@@ -1550,7 +1566,7 @@ def _get_replacement_map_post_concatenating(call_sites: Sequence[Call],
         bindings=Map(new_call_bindings),
         tags=template_call_site.tags)
 
-    output_slicer = _OutputSlicer()
+    output_slicer = _OutputSlicer(inherit_axes=inherit_axes)
 
     # slice into new_call's outputs to replace the old expressions.
     for output_name, output_ary in (template_call_site
@@ -1578,6 +1594,7 @@ def _get_replacement_map_post_concatenating(call_sites: Sequence[Call],
 def concatenate_calls(expr: ArrayOrNames,
                       call_site_filter: Callable[[CallSiteLocation], bool],
                       *,
+                      inherit_axes: bool = False,
                       warn_if_no_calls: bool = True,
                       err_if_no_calls: bool = False,
                       ) -> ArrayOrNames:
@@ -1624,9 +1641,9 @@ def concatenate_calls(expr: ArrayOrNames,
                 raise AssertionError(
                     "Call sites to concatenate are not structurally similar.")
 
-    old_expr_to_new_expr_map = (
-        _get_replacement_map_post_concatenating([csite.call
-                                                 for csite in filtered_call_sites]))
+    old_expr_to_new_expr_map = _get_replacement_map_post_concatenating(
+            [csite.call for csite in filtered_call_sites],
+            inherit_axes=inherit_axes)
 
     stack, = {csite.stack for csite in filtered_call_sites}
 

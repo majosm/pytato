@@ -15,6 +15,8 @@ Pre-Defined Tags
 .. autoclass:: CallImplementationTag
 .. autoclass:: InlineCallTag
 .. autoclass:: UseInputAxis
+.. autoclass:: ConcatenatedCallInputConcatAxisTag
+.. autoclass:: ConcatenatedCallOutputSliceAxisTag
 """
 
 from typing import Tuple, Hashable, Optional
@@ -239,3 +241,20 @@ class UseInputAxis(UniqueTag):
     """
     key: Hashable
     axis: int
+
+
+@dataclass(frozen=True)
+class ConcatenatedCallInputConcatAxisTag(UniqueTag):
+    """
+    An axis tag indicating that an array is a concatenation of multiple
+    inputs resulting from the transformations done in
+    :func:`pytato.concatenate_calls`.
+    """
+
+
+@dataclass(frozen=True)
+class ConcatenatedCallOutputSliceAxisTag(UniqueTag):
+    """
+    An axis tag indicating that an array is a slice of a concatenated output
+    resulting from the transformations done in :func:`pytato.concatenate_calls`.
+    """
