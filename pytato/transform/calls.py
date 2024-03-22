@@ -205,9 +205,10 @@ class CallSiteLocation:
     stack: Tuple[Call, ...]
 
 
-class CallsiteCollector(CombineMapper[FrozenSet[CallSiteLocation]]):
+class CallSiteDependencyCollector(CombineMapper[FrozenSet[CallSiteLocation]]):
     r"""
-    Collects all the call sites in a :mod:`pytato` expression.
+    Collects all the call sites in a :mod:`pytato` expression along with their
+    interdependencies.
 
     .. attribute:: stack
 
@@ -216,9 +217,16 @@ class CallsiteCollector(CombineMapper[FrozenSet[CallSiteLocation]]):
         :class:`CallSiteLocation`\ s being built. Must be altered (by creating
         a new instance of the mapper) before entering the function body of a
         new :class:`~pytato.function.Call`.
+
+    .. attribute:: call_site_to_dep_call_sites
+
+        A mapping from call site to the call sites on which it depends, for each
+        call site present in the expression.
     """
     def __init__(self, stack: Tuple[Call, ...]) -> None:
         self.stack = stack
+        self.call_site_to_dep_call_sites: \
+            Dict[CallSiteLocation, CallSiteLocation] = {}
         super().__init__()
 
     def combine(self, *args: FrozenSet[CallSiteLocation]
@@ -230,11 +238,19 @@ class CallsiteCollector(CombineMapper[FrozenSet[CallSiteLocation]]):
         return frozenset()
 
     def map_call(self, expr: Call) -> FrozenSet[CallSiteLocation]:
-        new_mapper_for_fn = CallsiteCollector(stack=self.stack + (expr,))
-        return self.combine(frozenset([CallSiteLocation(expr, self.stack)]),
-                            *[self.rec(bnd) for bnd in expr.bindings.values()],
-                            *[new_mapper_for_fn(ret)
-                              for ret in expr.function.returns.values()])
+        cs = CallSiteLocation(expr, self.stack)
+
+        new_mapper_for_fn = CallSiteDependencyCollector(stack=self.stack + (expr,))
+        dependent_call_sites = self.combine(
+            *[self.rec(bnd) for bnd in expr.bindings.values()],
+            *[new_mapper_for_fn(ret)
+              for ret in expr.function.returns.values()])
+
+        self.call_site_to_dep_call_sites[cs] = dependent_call_sites
+        self.call_site_to_dep_call_sites.update(
+            new_mapper_for_fn.call_site_to_dep_call_sites)
+
+        return self.combine(frozenset([cs]), dependent_call_sites)
 
 
 class _NamedCallResultReplacerPostConcatenate(CopyMapper):
@@ -1605,52 +1621,94 @@ def concatenate_calls(expr: ArrayOrNames,
     :arg call_site_filter: A callable to select which instances of
         :class:`~pytato.function.Call`\ s must be concatenated.
     """
-    all_call_sites = CallsiteCollector(stack=())(expr)
+    call_site_collector = CallSiteDependencyCollector(stack=())
 
-    filtered_call_sites = {callsite
-                           for callsite in all_call_sites
-                           if call_site_filter(callsite)}
+    all_call_sites = call_site_collector(expr)
+    filtered_call_sites = {cs
+                           for cs in all_call_sites
+                           if call_site_filter(cs)}
 
-    if len(filtered_call_sites) <= 1:
-        if err_if_no_calls:
-            raise ValueError("Not enough calls to concatenate.")
-        elif warn_if_no_calls:
-            from warnings import warn
-            warn("Not enough calls to concatenate.", stacklevel=2)
-        else:
-            pass
-        return expr
-    elif len({csite.stack for csite in filtered_call_sites}) == 1:
-        pass
-    else:
-        raise ValueError("Call-sites to concatenate are called"
-                         " at multiple stack frames. This is not allowed.")
+    from pytato.tags import FunctionIdentifier
+    function_ids = {
+        next(iter(cs.call.function.tags_of_type(FunctionIdentifier)))
+        for cs in filtered_call_sites}
 
-    if __debug__:
-        from pytato.equality import SimilarityComparer
-        template_function = next(iter(filtered_call_sites)).call.function
-        for csite in filtered_call_sites:
-            other_function = csite.call.function
-            if not (
-                    other_function.returns.keys() == template_function.returns.keys()
+    result = expr
+
+    for fid in function_ids:
+        call_site_dep_collector = CallSiteDependencyCollector(stack=())
+        call_site_dep_collector(result)
+
+        call_site_to_dep_call_sites = \
+            call_site_dep_collector.call_site_to_dep_call_sites
+
+        unbatched_call_sites: Set[CallSiteLocation] = {
+            cs for cs in call_site_to_dep_call_sites.keys()
+            if call_site_filter(cs) and fid in cs.call.function.tags}
+
+        call_site_batches: List[FrozenSet[CallSiteLocation]] = []
+
+        while unbatched_call_sites:
+            ready_call_sites = frozenset({
+                cs for cs in unbatched_call_sites
+                if not call_site_to_dep_call_sites[cs] & unbatched_call_sites})
+
+            if not ready_call_sites:
+                raise ValueError("Found cycle in call site dependency graph.")
+
+            template_fn = next(iter(ready_call_sites)).call.function
+
+            from pytato.equality import SimilarityComparer
+            similarity_comparer = SimilarityComparer()
+            similar_call_sites = frozenset({
+                cs for cs in ready_call_sites
+                if (
+                    (
+                        frozenset(cs.call.function.returns.keys())
+                        == frozenset(template_fn.returns.keys()))
                     and all(
-                        SimilarityComparer()(
-                            template_function.returns[name],
-                            other_function.returns[name])
-                        for name in template_function.returns)):
-                raise AssertionError(
-                    "Call sites to concatenate are not structurally similar.")
+                        similarity_comparer(
+                            cs.call.function.returns[name],
+                            template_fn.returns[name])
+                        for name in template_fn.returns))})
 
-    old_expr_to_new_expr_map = _get_replacement_map_post_concatenating(
-            [csite.call for csite in filtered_call_sites],
-            inherit_axes=inherit_axes)
+            if not similar_call_sites:
+                raise ValueError("Failed to find similar call sites to concatenate.")
 
-    stack, = {csite.stack for csite in filtered_call_sites}
+            call_site_batches.append(similar_call_sites)
+            unbatched_call_sites -= similar_call_sites
 
-    result = _NamedCallResultReplacerPostConcatenate(
-        replacement_map=old_expr_to_new_expr_map,
-        current_stack=(),
-        stack_to_replace_on=stack)(expr)
+        for call_sites in call_site_batches:
+            if len(call_sites) <= 1:
+                if err_if_no_calls:
+                    raise ValueError(
+                        f"Not enough calls to concatenate function with ID '{fid}'.")
+                elif warn_if_no_calls:
+                    from warnings import warn
+                    warn(
+                        f"Not enough calls to concatenate function with ID '{fid}'.",
+                        stacklevel=2)
+                else:
+                    pass
+                continue
+            elif len({cs.stack for cs in call_sites}) == 1:
+                pass
+            else:
+                raise ValueError(
+                    "Call sites to concatenate are called "
+                    f"at multiple stack frames for function with ID '{fid}'. "
+                    "This is not allowed.")
+
+            old_expr_to_new_expr_map = _get_replacement_map_post_concatenating(
+                    [cs.call for cs in call_sites],
+                    inherit_axes=inherit_axes)
+
+            stack, = {cs.stack for cs in call_sites}
+
+            result = _NamedCallResultReplacerPostConcatenate(
+                replacement_map=old_expr_to_new_expr_map,
+                current_stack=(),
+                stack_to_replace_on=stack)(result)
 
     assert isinstance(result, (Array, AbstractResultWithNamedArrays))
     return result
