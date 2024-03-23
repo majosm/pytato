@@ -1656,7 +1656,8 @@ def concatenate_calls(expr: ArrayOrNames,
             if not ready_call_sites:
                 raise ValueError("Found cycle in call site dependency graph.")
 
-            template_fn = next(iter(ready_call_sites)).call.function
+            template_call_site = next(iter(ready_call_sites))
+            template_fn = template_call_site.call.function
 
             from pytato.equality import SimilarityComparer
             similarity_comparer = SimilarityComparer()
@@ -1670,7 +1671,8 @@ def concatenate_calls(expr: ArrayOrNames,
                         similarity_comparer(
                             cs.call.function.returns[name],
                             template_fn.returns[name])
-                        for name in template_fn.returns))})
+                        for name in template_fn.returns)
+                    and cs.stack == template_call_site.stack)})
 
             if not similar_call_sites:
                 raise ValueError("Failed to find similar call sites to concatenate.")
@@ -1691,13 +1693,6 @@ def concatenate_calls(expr: ArrayOrNames,
                 else:
                     pass
                 continue
-            elif len({cs.stack for cs in call_sites}) == 1:
-                pass
-            else:
-                raise ValueError(
-                    "Call sites to concatenate are called "
-                    f"at multiple stack frames for function with ID '{fid}'. "
-                    "This is not allowed.")
 
             old_expr_to_new_expr_map = _get_replacement_map_post_concatenating(
                     [cs.call for cs in call_sites],
