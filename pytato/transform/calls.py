@@ -51,6 +51,7 @@ from pytato.array import (AbstractResultWithNamedArrays, Array,
                           ShapeType)
 from functools import partialmethod
 from immutables import Map
+from immutabledict import immutabledict
 from pytools import memoize_method, memoize_on_first_arg
 
 from pytato.function import Call, NamedCallResult, FunctionDefinition
@@ -304,10 +305,19 @@ class _NamedCallResultReplacerPostConcatenate(CopyMapper):
                              for name, bnd in expr.bindings.items()}),
                         tags=expr.tags)
         else:
-            return Call(expr.function,  # do not map the exprs in function's body.
-                        Map({name: self.rec(bnd)
-                             for name, bnd in expr.bindings.items()}),
-                        tags=expr.tags)
+            # do not map the exprs in function's body
+            new_bindings = {
+                name: self.rec(bnd)
+                for name, bnd in expr.bindings.items()}
+            if all(
+                    new_bnd is bnd
+                    for bnd, new_bnd in zip(
+                        expr.bindings.values(),
+                        new_bindings.values())):
+                return expr
+            else:
+                return Call(
+                    expr.function, immutabledict(new_bindings), tags=expr.tags)
 
     def map_named_call_result(self, expr: NamedCallResult) -> Array:
         if self.current_stack == self.stack_to_replace_on:
