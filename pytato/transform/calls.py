@@ -35,7 +35,7 @@ THE SOFTWARE.
 
 import itertools
 import logging
-from functools import partialmethod
+from functools import partialmethod, reduce
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -296,7 +296,6 @@ class CallSiteDependencyCollector(CombineMapper[FrozenSet[CallSiteLocation]]):
 
     def combine(self, *args: FrozenSet[CallSiteLocation]
                 ) -> FrozenSet[CallSiteLocation]:
-        from functools import reduce
         return reduce(lambda a, b: a | b, args, frozenset())
 
     def map_size_param(self, expr: SizeParam) -> FrozenSet[CallSiteLocation]:
@@ -576,8 +575,6 @@ def _combine_input_accs(
         ``I`` axis via the criterion ``conncat_I``.
     """
 
-    from functools import reduce
-
     input_concatabilities: Dict[Concatenatability, Map[InputArgumentBase,
                                                        Concatenatability]] = {}
     seen_inputs: FrozenSet[InputArgumentBase] = reduce(
@@ -667,21 +664,68 @@ class FunctionConcatenability:
                 "========")
 
 
-def _combine_named_result_accs(
+def _combine_named_result_accs_simple(
         named_result_accs: Mapping[str, _InputConcatabilityGetterAcc]
 ) -> Tuple[FunctionConcatenability, ...]:
     """
     Combines the concantenatability constraints of named results of a
     :class:`FunctionDefinition` and returns a :class:`tuple` of the valid
+    *simple* concatenatable constraints (i.e., concatenation of all inputs/outputs
+    along the same axis).
+    """
+    valid_concatenatabilities: List[FunctionConcatenability] = []
+
+    input_args = reduce(
+        frozenset.union,
+        [
+            acc.seen_inputs
+            for acc in named_result_accs.values()],
+        frozenset())
+
+    candidate_concat_axes = reduce(
+        frozenset.union,
+        [
+            frozenset(acc.input_concatability.keys())
+            for acc in named_result_accs.values()],
+        frozenset())
+
+    for i_concat_axis in candidate_concat_axes:
+        if (
+                all(
+                    i_concat_axis in acc.input_concatability
+                    for acc in named_result_accs.values())
+                and all(
+                    i_input_axis == i_concat_axis
+                    for acc in named_result_accs.values()
+                    for i_input_axis in (
+                        acc.input_concatability[i_concat_axis].values()))):
+            output_concats = {name: i_concat_axis for name in named_result_accs}
+            input_concats = {pl.name: i_concat_axis
+                             for pl in input_args
+                             if isinstance(pl, Placeholder)}
+            valid_concatenatabilities.append(
+                FunctionConcatenability(Map(output_concats),
+                                        Map(input_concats)))
+
+    return valid_concatenatabilities
+
+
+# FIXME: Find a more efficient way to do this. The number of candidates
+# explodes when the function being concatenated has more than a few outputs
+def _combine_named_result_accs_exhaustive(
+        named_result_accs: Mapping[str, _InputConcatabilityGetterAcc]
+) -> Generator[
+        FunctionConcatenability,
+        None,
+        None]:
+    """
+    Combines the concantenatability constraints of named results of a
+    :class:`FunctionDefinition` and returns a :class:`tuple` of the valid
     concatenatable constraints.
     """
-    # FIXME: Find a better way to do this. The number of candidates explodes when
-    # the function being concatenated has more than a few outputs
     potential_concatenatable_output_axes = itertools.product(*[
         [(name, concat) for concat in acc.input_concatability]
         for name, acc in named_result_accs.items()])
-
-    valid_concatenatabilities: List[FunctionConcatenability] = []
 
     for output_concats in potential_concatenatable_output_axes:
         is_concatenatable = True
@@ -706,12 +750,8 @@ def _combine_named_result_accs(
             pl_concatabilities = {pl.name: concat
                                   for pl, concat in input_concatability.items()
                                   if isinstance(pl, Placeholder)}
-            valid_concatenatabilities.append(
-                FunctionConcatenability(Map(output_concats),
-                                        Map(pl_concatabilities))
-            )
-
-    return tuple(valid_concatenatabilities)
+            yield FunctionConcatenability(Map(output_concats),
+                                          Map(pl_concatabilities))
 
 
 class _InputConcatabilityGetter(CachedMapper[ArrayOrNames]):
@@ -792,7 +832,7 @@ class _InputConcatabilityGetter(CachedMapper[ArrayOrNames]):
     def map_named_call_result(self, expr: NamedCallResult
                               ) -> _InputConcatabilityGetterAcc:
         assert isinstance(expr._container, Call)
-        valid_concatenatabilities = _get_valid_concatenatability_constraints(
+        valid_concatenatabilities = _get_valid_concatenatability_constraints_basic(
             expr._container.function)
 
         expr_concat_possibilities = {
@@ -1497,14 +1537,26 @@ class _FunctionConcatenator(Mapper):
 
 
 @memoize_on_first_arg
-def _get_valid_concatenatability_constraints(fn: FunctionDefinition,
-                                             ) -> Tuple[FunctionConcatenability,
-                                                        ...]:
+def _get_valid_concatenatability_constraints_simple(
+        fn: FunctionDefinition) -> Tuple[FunctionConcatenability]:
     mapper = _InputConcatabilityGetter()
     output_accs = {name: mapper(output)
                    for name, output in fn.returns.items()}
 
-    return _combine_named_result_accs(output_accs)
+    return _combine_named_result_accs_simple(output_accs)
+
+
+@memoize_on_first_arg
+def _get_valid_concatenatability_constraints_exhaustive(
+        fn: FunctionDefinition) -> Generator[
+            FunctionConcatenability,
+            None,
+            None]:
+    mapper = _InputConcatabilityGetter()
+    output_accs = {name: mapper(output)
+                   for name, output in fn.returns.items()}
+
+    yield from _combine_named_result_accs_exhaustive(output_accs)
 
 
 def _get_ary_to_concatenatabilities(call_sites: Sequence[Call],
@@ -1518,7 +1570,8 @@ def _get_ary_to_concatenatabilities(call_sites: Sequence[Call],
     function bodies.
     """
     fn_body = next(iter(call_sites)).function
-    fn_concatenatabilities = _get_valid_concatenatability_constraints(fn_body)
+
+    fn_concatenatabilities = _get_valid_concatenatability_constraints_simple(fn_body)
 
     for fn_concatenatability in fn_concatenatabilities:
         collector = _ConcatabilityCollector(current_stack=())
