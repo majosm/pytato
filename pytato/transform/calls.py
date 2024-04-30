@@ -84,6 +84,7 @@ from pytato.function import Call, FunctionDefinition, NamedCallResult
 from pytato.tags import (
     ConcatenatedCallInputConcatAxisTag,
     ConcatenatedCallOutputSliceAxisTag,
+    ImplStored,
     InlineCallTag,
     UseInputAxis,
 )
@@ -1135,7 +1136,8 @@ class _InputConcatenator:
         return concatenate(
                 arrays,
                 axis
-            ).with_tagged_axis(axis, frozenset({concat_axis_tag}))
+            ).with_tagged_axis(axis, frozenset({concat_axis_tag})).tagged(
+                ImplStored())
 
 
 # Memoize the creation of sliced output arrays to avoid copies
@@ -1157,7 +1159,7 @@ class _OutputSlicer:
         else:
             slice_axis_tag = ConcatenatedCallOutputSliceAxisTag()
         sliced_ary = ary[tuple(indices)].with_tagged_axis(
-            axis, frozenset({slice_axis_tag}))
+            axis, frozenset({slice_axis_tag})).tagged(ImplStored())
         assert isinstance(sliced_ary, BasicIndex)
         return sliced_ary
 
