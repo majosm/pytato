@@ -1719,6 +1719,14 @@ def concatenate_calls(expr: ArrayOrNames,
             cs for cs in call_site_to_dep_call_sites.keys()
             if call_site_filter(cs) and fid in cs.call.function.tags}
 
+        for cs in unbatched_call_sites:
+            for ret in cs.call.function.returns.values():
+                from pytato.analysis import collect_nodes_of_type
+                nested_calls = collect_nodes_of_type(ret, Call)
+                if nested_calls:
+                    raise NotImplementedError(
+                        "Concatenation of nested calls is not yet supported.")
+
         call_site_batches: List[FrozenSet[CallSiteLocation]] = []
 
         replacement_map: Dict[
