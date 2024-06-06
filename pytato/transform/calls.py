@@ -1578,6 +1578,8 @@ def _get_replacement_map_post_concatenating(
     # {{{ actually perform the concatenation
 
     template_call_site, *other_call_sites = call_sites
+    template_returns = template_call_site.function.returns
+    template_bindings = template_call_site.bindings
 
     function_concatenator = _FunctionConcatenator(
         current_stack=(), input_concatenator=input_concatenator,
@@ -1587,54 +1589,59 @@ def _get_replacement_map_post_concatenating(
     new_returns: Dict[str, Array] = {}
     for output_name in template_call_site.keys():
         new_returns[output_name] = function_concatenator(
-            template_call_site.function.returns[output_name],
+            template_returns[output_name],
             tuple(csite.function.returns[output_name]
                   for csite in other_call_sites))
 
     # }}}
 
     # construct new function body
-    new_function = FunctionDefinition(
-        template_call_site.function.parameters,
-        template_call_site.function.return_type,
-        immutabledict(new_returns),
-        tags=template_call_site.function.tags,
-    )
+    if any(
+            new_returns[output_name] is not template_returns[output_name]
+            for output_name in template_returns):
+        new_function = FunctionDefinition(
+            template_call_site.function.parameters,
+            template_call_site.function.return_type,
+            immutabledict(new_returns),
+            tags=template_call_site.function.tags)
+    else:
+        new_function = template_call_site.function
 
     result: Dict[NamedCallResult, Array] = {}
 
     new_call_bindings: Dict[str, Array] = {}
 
-    concat_binding_cache: Dict[Tuple[Array], Array] = {}
-
     # construct new bindings
-    for param_name in template_call_site.bindings:
+    for param_name in template_bindings:
         param_placeholder = template_call_site.function.get_placeholder(param_name)
         param_concat = ary_to_concatenatability[((), param_placeholder)]
         if isinstance(param_concat, ConcatableAlongAxis):
             param_bindings = tuple([
                 csite.bindings[param_name]
                 for csite in call_sites])
-            try:
-                new_binding = concat_binding_cache[param_bindings]
-            except KeyError:
-                new_binding = input_concatenator(
-                    param_bindings,
-                    param_concat.axis)
-                concat_binding_cache[param_bindings] = new_binding
+            new_binding = input_concatenator(
+                param_bindings,
+                param_concat.axis)
         elif isinstance(param_concat, ConcatableIfConstant):
             _verify_arrays_same([csite.bindings[param_name]
                                  for csite in call_sites])
-            new_binding = template_call_site.bindings[param_name]
+            new_binding = template_bindings[param_name]
         else:
             raise NotImplementedError(type(param_concat))
         new_call_bindings[param_name] = new_binding
 
     # construct new call
-    new_call = Call(
-        function=new_function,
-        bindings=immutabledict(new_call_bindings),
-        tags=template_call_site.tags)
+    if (
+            new_function is not template_call_site.function
+            or any(
+                new_call_bindings[param_name] is not template_bindings[param_name]
+                for param_name in template_bindings)):
+        new_call = Call(
+            function=new_function,
+            bindings=immutabledict(new_call_bindings),
+            tags=template_call_site.tags)
+    else:
+        new_call = template_call_site
 
     # slice into new_call's outputs to replace the old expressions.
     for output_name, output_ary in (template_call_site
