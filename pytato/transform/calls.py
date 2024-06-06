@@ -38,8 +38,8 @@ import pytato.scalar_expr as scalar_expr
 
 from typing import (Tuple, FrozenSet, Collection, Mapping, Any, List, Dict,
                     TYPE_CHECKING, Sequence, Callable, Set, Generator)
-from pytato.transform import (ArrayOrNames, CopyMapper, CombineMapper, Mapper,
-                              CachedMapper, _SelfMapper,
+from pytato.transform import (ArrayOrNames, TransformMapperWithExtraArgs, CopyMapper,
+                              CombineMapper, Mapper, CachedMapper, _SelfMapper,
                               CachedWalkMapper)
 from pytato.transform.lower_to_index_lambda import to_index_lambda
 from pytato.array import (AbstractResultWithNamedArrays, Array,
@@ -1111,30 +1111,16 @@ class _OutputSlicer:
             for start_idx, end_idx in zip(start_indices, end_indices)]
 
 
-class _FunctionConcatenator(Mapper):
+class _FunctionConcatenator(TransformMapperWithExtraArgs):
     def __init__(self,
                  current_stack: Tuple[Call, ...],
                  input_concatenator: _InputConcatenator,
                  ary_to_concatenatability: Map[ArrayOnStackT, Concatenatability],
                  ) -> None:
+        super().__init__()
         self.current_stack = current_stack
         self.input_concatenator = input_concatenator
         self.ary_to_concatenatability = ary_to_concatenatability
-
-        self._cache: Dict[Tuple[Array, Tuple[Array, ...]], Array] = {}
-
-    # type-ignore-reason: super-type Mapper does not allow the extra args.
-    def rec(self, expr: Array,  # type: ignore[override]
-            exprs_from_other_calls: Tuple[Array, ...]
-            ) -> Array:
-        key = (expr, exprs_from_other_calls)
-        try:
-            return self._cache[key]
-        except KeyError:
-            result: Array = super().rec(expr,
-                                        exprs_from_other_calls)
-            self._cache[key] = result
-            return result
 
     @memoize_method
     def clone_with_new_call_on_stack(self, expr: Call) -> _FunctionConcatenator:
