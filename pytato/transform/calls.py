@@ -1586,12 +1586,21 @@ def _get_replacement_map_post_concatenating(
         ary_to_concatenatability=ary_to_concatenatability)
 
     # new_returns: concatenated function body
+    new_returns_cache = {}
     new_returns: Dict[str, Array] = {}
     for output_name in template_call_site.keys():
-        new_returns[output_name] = function_concatenator(
+        new_return = function_concatenator(
             template_returns[output_name],
             tuple(csite.function.returns[output_name]
                   for csite in other_call_sites))
+        try:
+            cached_new_return = new_returns_cache[new_return]
+        except KeyError:
+            pass
+        else:
+            assert new_return is cached_new_return
+        new_returns_cache[new_return] = new_return
+        new_returns[output_name] = new_return
 
     # }}}
 
