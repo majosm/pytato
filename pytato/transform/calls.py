@@ -1546,7 +1546,8 @@ def _get_ary_to_concatenatabilities(call_sites: Sequence[Call],
 
 def _get_replacement_map_post_concatenating(
         call_sites: Sequence[Call],
-        inherit_axes: bool) -> Mapping[NamedCallResult, Array]:
+        input_concatenator: _InputConcatenator,
+        output_slicer: _OutputSlicer) -> Mapping[NamedCallResult, Array]:
     """
     .. note::
 
@@ -1577,8 +1578,6 @@ def _get_replacement_map_post_concatenating(
     # {{{ actually perform the concatenation
 
     template_call_site, *other_call_sites = call_sites
-
-    input_concatenator = _InputConcatenator(inherit_axes=inherit_axes)
 
     function_concatenator = _FunctionConcatenator(
         current_stack=(), input_concatenator=input_concatenator,
@@ -1637,8 +1636,6 @@ def _get_replacement_map_post_concatenating(
         bindings=immutabledict(new_call_bindings),
         tags=template_call_site.tags)
 
-    output_slicer = _OutputSlicer(inherit_axes=inherit_axes)
-
     # slice into new_call's outputs to replace the old expressions.
     for output_name, output_ary in (template_call_site
                                     .function
@@ -1687,6 +1684,11 @@ def concatenate_calls(expr: ArrayOrNames,
     function_ids = {
         next(iter(cs.call.function.tags_of_type(FunctionIdentifier)))
         for cs in filtered_call_sites}
+
+    # Input concatenator needs to be set up outside of the loop in order to prevent
+    # creating duplicates; probably not strictly necessary for output slicer
+    input_concatenator = _InputConcatenator(inherit_axes=inherit_axes)
+    output_slicer = _OutputSlicer(inherit_axes=inherit_axes)
 
     result = expr
 
@@ -1758,7 +1760,8 @@ def concatenate_calls(expr: ArrayOrNames,
 
             old_expr_to_new_expr_map = _get_replacement_map_post_concatenating(
                     [cs.call for cs in call_sites],
-                    inherit_axes=inherit_axes)
+                    input_concatenator=input_concatenator,
+                    output_slicer=output_slicer)
 
             stack, = {cs.stack for cs in call_sites}
 
