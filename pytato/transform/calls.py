@@ -335,9 +335,9 @@ class _NamedCallResultReplacerPostConcatenate(CopyMapper):
                         Tuple[Call, ...]],
                     Array],
                  current_stack: Tuple[Call, ...]) -> None:
+        super().__init__()
         self.replacement_map = replacement_map
         self.current_stack = current_stack
-        super().__init__()
 
     @memoize_method
     def clone_for_callee(
