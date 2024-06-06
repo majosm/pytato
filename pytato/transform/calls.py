@@ -382,7 +382,11 @@ class _NamedCallResultReplacerPostConcatenate(CopyMapper):
 
     def map_named_call_result(self, expr: NamedCallResult) -> Array:
         try:
-            return super().rec(self.replacement_map[expr, self.current_stack])
+            new_expr = self.replacement_map[expr, self.current_stack]
+            if isinstance(new_expr, NamedCallResult):
+                return super().map_named_call_result(new_expr)
+            else:
+                return self.rec(new_expr)
         except KeyError:
             return super().map_named_call_result(expr)
 
