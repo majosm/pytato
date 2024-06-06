@@ -1904,6 +1904,31 @@ def precompute_subexpressions(
 # }}}
 
 
+# {{{ SelfComputeGatherer
+
+class SelfComputeGatherer(CombineMapper[FrozenSet[Array]]):
+    """
+    Mapper to combine all non-materialized arrays that an array expression depends
+    on.
+    """
+    def rec(self, expr: ArrayOrNames) -> CombineT:  # type: ignore
+        if expr in self.cache:
+            return self.cache[expr]
+        if expr.tags_of_type(ImplStored):
+            result: CombineT = frozenset()
+        else:
+            result: CombineT = self.combine(frozenset({expr}), Mapper.rec(self, expr))
+        self.cache[expr] = result
+        return result
+
+    def combine(self, *args: FrozenSet[InputArgumentBase]
+                ) -> FrozenSet[InputArgumentBase]:
+        from functools import reduce
+        return reduce(lambda a, b: a | b, args, frozenset())
+
+# }}}
+
+
 # {{{ SizeParamGatherer
 
 class SizeParamGatherer(CombineMapper[FrozenSet[SizeParam]]):
