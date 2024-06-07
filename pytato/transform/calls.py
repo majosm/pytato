@@ -35,6 +35,7 @@ THE SOFTWARE.
 
 import itertools
 import logging
+import numpy as np
 from functools import partialmethod, reduce
 from typing import (
     TYPE_CHECKING,
@@ -307,7 +308,9 @@ class CallSiteDependencyCollector(CombineMapper[FrozenSet[CallSiteLocation]]):
 
         new_mapper_for_fn = CallSiteDependencyCollector(stack=self.stack + (expr,))
         dependent_call_sites = self.combine(
-            *[self.rec(bnd) for bnd in expr.bindings.values()],
+            *[
+                self.rec(bnd) for bnd in expr.bindings.values()
+                if isinstance(bnd, Array)],
             *[new_mapper_for_fn(ret)
               for ret in expr.function.returns.values()])
 
@@ -376,7 +379,7 @@ class _NamedCallResultReplacerPostConcatenate(CopyMapper):
         new_mapper = self.clone_with_new_call_on_stack(expr)
         new_function = new_mapper.rec_function_definition(expr.function)
         new_bindings = {
-            name: self.rec(bnd)
+            name: self.rec(bnd) if isinstance(bnd, Array) else bnd
             for name, bnd in expr.bindings.items()}
         if (
                 new_function is expr.function
@@ -554,6 +557,16 @@ class _ScalarExprConcatabilityMapper(scalar_expr.CombineMapper):
 
 
 @memoize_on_first_arg
+def _get_binding_to_concatenatability_scalar_expr(
+        expr: scalar_expr.ScalarExpression,
+        iaxis: int,
+        is_length_1: bool,
+        allow_indirect_addr: bool) -> Mapping[str, Concatenatability]:
+    mapper = _ScalarExprConcatabilityMapper(iaxis, is_length_1, allow_indirect_addr)
+    return mapper(expr)  # type: ignore[no-any-return]
+
+
+
 def _get_binding_to_concatenatability(expr: scalar_expr.ScalarExpression,
                                       iaxis: int,
                                       is_length_1: bool,
@@ -562,8 +575,12 @@ def _get_binding_to_concatenatability(expr: scalar_expr.ScalarExpression,
     """
     Maps *expr* using :class:`_ScalarExprConcatabilityMapper`.
     """
-    mapper = _ScalarExprConcatabilityMapper(iaxis, is_length_1, allow_indirect_addr)
-    return mapper(expr)  # type: ignore[no-any-return]
+    if np.isscalar(expr):
+        # In some cases expr may just be a number, which can't be memoized on
+        return {}
+
+    return _get_binding_to_concatenatability_scalar_expr(
+        expr, iaxis, is_length_1, allow_indirect_addr)
 
 
 def _combine_input_accs(
@@ -1112,6 +1129,8 @@ class _ConcatabilityCollector(CachedWalkMapper):
                 self.ary_to_concatenatability[ary] = concat
 
             for name, binding in expr.bindings.items():
+                if not isinstance(binding, Array):
+                    continue
                 concat = (
                     new_mapper
                     .ary_to_concatenatability[(self.current_stack + (expr,),
@@ -1526,9 +1545,13 @@ class _FunctionConcatenator(TransformMapperWithExtraArgs):
         new_function = new_mapper.rec_function_definition(
             expr.function,
             tuple(other_call.function for other_call in other_callsites))
-        new_bindings = {name: self.rec(bnd,
-                                       tuple(callsite.bindings[name]
-                                             for callsite in other_callsites))
+        new_bindings = {name: (
+                            self.rec(
+                                bnd, tuple(
+                                    callsite.bindings[name]
+                                    for callsite in other_callsites))
+                            if isinstance(bnd, Array)
+                            else bnd)
                         for name, bnd in expr.bindings.items()}
         if (
                 new_function is expr.function
