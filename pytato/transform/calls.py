@@ -33,6 +33,7 @@ THE SOFTWARE.
 
 import itertools
 import attrs
+import numpy as np
 import pymbolic.primitives as prim
 import pytato.scalar_expr as scalar_expr
 
@@ -230,7 +231,9 @@ class CallsiteCollector(CombineMapper[FrozenSet[CallSiteLocation]]):
     def map_call(self, expr: Call) -> FrozenSet[CallSiteLocation]:
         new_mapper_for_fn = CallsiteCollector(stack=self.stack + (expr,))
         return self.combine(frozenset([CallSiteLocation(expr, self.stack)]),
-                            *[self.rec(bnd) for bnd in expr.bindings.values()],
+                            *[
+                                self.rec(bnd) for bnd in expr.bindings.values()
+                                if isinstance(bnd, Array)],
                             *[new_mapper_for_fn(ret)
                               for ret in expr.function.returns.values()])
 
@@ -282,12 +285,12 @@ class _NamedCallResultReplacerPostConcatenate(CopyMapper):
             new_mapper = self.clone_with_new_call_on_stack(expr)
 
             return Call(new_mapper.map_function_definition(expr.function),
-                        Map({name: self.rec(bnd)
+                        Map({name: self.rec(bnd) if isinstance(bnd, Array) else bnd
                              for name, bnd in expr.bindings.items()}),
                         tags=expr.tags)
         else:
             return Call(expr.function,  # do not map the exprs in function's body.
-                        Map({name: self.rec(bnd)
+                        Map({name: self.rec(bnd) if isinstance(bnd, Array) else bnd
                              for name, bnd in expr.bindings.items()}),
                         tags=expr.tags)
 
@@ -455,6 +458,16 @@ class _ScalarExprConcatabilityMapper(scalar_expr.CombineMapper):
 
 
 @memoize_on_first_arg
+def _get_binding_to_concatenatability_scalar_expr(
+        expr: scalar_expr.ScalarExpression,
+        iaxis: int,
+        is_length_1: bool,
+        allow_indirect_addr: bool) -> Mapping[str, Concatenatability]:
+    mapper = _ScalarExprConcatabilityMapper(iaxis, is_length_1, allow_indirect_addr)
+    return mapper(expr)  # type: ignore[no-any-return]
+
+
+
 def _get_binding_to_concatenatability(expr: scalar_expr.ScalarExpression,
                                       iaxis: int,
                                       is_length_1: bool,
@@ -463,8 +476,12 @@ def _get_binding_to_concatenatability(expr: scalar_expr.ScalarExpression,
     """
     Maps *expr* using :class:`_ScalarExprConcatabilityMapper`.
     """
-    mapper = _ScalarExprConcatabilityMapper(iaxis, is_length_1, allow_indirect_addr)
-    return mapper(expr)  # type: ignore[no-any-return]
+    if np.isscalar(expr):
+        # In some cases expr may just be a number, which can't be memoized on
+        return {}
+
+    return _get_binding_to_concatenatability_scalar_expr(
+        expr, iaxis, is_length_1, allow_indirect_addr)
 
 
 def _combine_input_accs(
@@ -963,6 +980,8 @@ class _ConcatabilityCollector(CachedWalkMapper):
                 self.ary_to_concatenatability[ary] = concat
 
             for name, binding in expr.bindings.items():
+                if not isinstance(binding, Array):
+                    continue
                 concat = (
                     new_mapper
                     .ary_to_concatenatability[(self.current_stack + (expr,),
@@ -1342,9 +1361,13 @@ class _FunctionConcatenator(Mapper):
             raise NotImplementedError(type(concat))
 
     def map_call(self, expr: Call, other_callsites: Tuple[Call, ...]) -> Call:
-        new_bindings = {name: self.rec(bnd,
-                                       tuple(callsite.bindings[name]
-                                             for callsite in other_callsites))
+        new_bindings = {name: (
+                            self.rec(
+                                bnd, tuple(
+                                    callsite.bindings[name]
+                                    for callsite in other_callsites))
+                            if isinstance(bnd, Array)
+                            else bnd)
                         for name, bnd in expr.bindings.items()}
         new_mapper = self.clone_with_new_call_on_stack(expr)
         fn_defn = expr.function
