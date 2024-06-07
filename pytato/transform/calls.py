@@ -50,7 +50,10 @@ class PlaceholderSubstitutor(CopyMapper):
         self.substitutions = substitutions
 
     def map_placeholder(self, expr: Placeholder) -> Array:
-        return self.substitutions[expr.name]
+        if expr.name in self.substitutions:
+            return self.rec(self.substitutions[expr.name])
+        else:
+            return super().map_placeholder(expr)
 
 
 class Inliner(CopyMapper):
@@ -66,7 +69,7 @@ class Inliner(CopyMapper):
             substitutor = PlaceholderSubstitutor(new_expr.bindings)
 
             return DictOfNamedArrays(
-                {name: substitutor(ret)
+                {name: self.rec(substitutor(ret))
                  for name, ret in new_expr.function.returns.items()},
                 tags=new_expr.tags
             )
