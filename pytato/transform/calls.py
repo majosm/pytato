@@ -53,7 +53,6 @@ from typing import (
 
 import attrs
 from immutabledict import immutabledict
-from immutables import Map
 
 import pymbolic.primitives as prim
 from pytools import memoize_method, memoize_on_first_arg
@@ -495,16 +494,16 @@ class _ScalarExprConcatabilityMapper(scalar_expr.CombineMapper):
                 except KeyError:
                     result[bnd_name] = iaxis
 
-        return Map(result)
+        return immutabledict(result)
 
     def map_variable(self, expr: prim.Variable) -> Mapping[str, Concatenatability]:
         if expr.name == f"_{self.iaxis}":
             raise NonConcatableExpression
         else:
-            return Map()
+            return immutabledict()
 
     def map_constant(self, expr: Any) -> Mapping[str, Concatenatability]:
-        return Map()
+        return immutabledict()
 
     map_nan = map_constant
 
@@ -538,7 +537,7 @@ class _ScalarExprConcatabilityMapper(scalar_expr.CombineMapper):
         if not self.is_length_1 and name not in combined_rec_indices:
             combined_rec_indices[name] = ConcatableIfConstant()
 
-        return Map(combined_rec_indices)
+        return immutabledict(combined_rec_indices)
 
 
 @memoize_on_first_arg
@@ -611,10 +610,10 @@ def _combine_input_accs(
                 break
 
         if is_i_out_axis_concatenatable:
-            input_concatabilities[out_concat] = Map(input_concatability)
+            input_concatabilities[out_concat] = immutabledict(input_concatability)
 
     return _InputConcatabilityGetterAcc(seen_inputs,
-                                        Map(input_concatabilities))
+                                        immutabledict(input_concatabilities))
 
 
 @attrs.define(frozen=True)
@@ -700,8 +699,8 @@ def _combine_named_result_accs_simple(
                              for pl in input_args
                              if isinstance(pl, Placeholder)}
             valid_concatenatabilities.append(
-                FunctionConcatenability(Map(output_concats),
-                                        Map(input_concats)))
+                FunctionConcatenability(immutabledict(output_concats),
+                                        immutabledict(input_concats)))
 
     return valid_concatenatabilities
 
@@ -746,8 +745,8 @@ def _combine_named_result_accs_exhaustive(
             pl_concatabilities = {pl.name: concat
                                   for pl, concat in input_concatability.items()
                                   if isinstance(pl, Placeholder)}
-            yield FunctionConcatenability(Map(output_concats),
-                                          Map(pl_concatabilities))
+            yield FunctionConcatenability(immutabledict(output_concats),
+                                          immutabledict(pl_concatabilities))
 
 
 class _InputConcatabilityGetter(CachedMapper[ArrayOrNames]):
@@ -764,14 +763,14 @@ class _InputConcatabilityGetter(CachedMapper[ArrayOrNames]):
                                       Map[InputArgumentBase,
                                           Concatenatability]] = {}
         for idim in range(expr.ndim):
-            input_concatenatability[ConcatableAlongAxis(idim)] = Map(
+            input_concatenatability[ConcatableAlongAxis(idim)] = immutabledict(
                 {expr: ConcatableAlongAxis(idim)})
 
-        input_concatenatability[ConcatableIfConstant()] = Map(
+        input_concatenatability[ConcatableIfConstant()] = immutabledict(
             {expr: ConcatableIfConstant()})
 
         return _InputConcatabilityGetterAcc(frozenset([expr]),
-                                            Map(input_concatenatability))
+                                            immutabledict(input_concatenatability))
 
     map_placeholder = _map_input_arg_base
     map_data_wrapper = _map_input_arg_base
@@ -892,11 +891,11 @@ class _InputConcatabilityGetter(CachedMapper[ArrayOrNames]):
                     raise NotImplementedError(type(callee_input_arg))
 
             if is_concat_possibility_valid:
-                input_concatenatabilities[concat_possibility] = Map(
+                input_concatenatabilities[concat_possibility] = immutabledict(
                     caller_input_concatabilities)
 
         return _InputConcatabilityGetterAcc(frozenset(seen_inputs),
-                                            Map(input_concatenatabilities))
+                                            immutabledict(input_concatenatabilities))
 
     def map_loopy_call_result(self, expr: "LoopyCallResult"
                               ) -> _InputConcatabilityGetterAcc:
@@ -1270,7 +1269,7 @@ class _FunctionConcatenator(Mapper):
             return IndexLambda(expr=expr.expr,
                                shape=new_shape,
                                dtype=expr.dtype,
-                               bindings=Map(new_bindings),
+                               bindings=immutabledict(new_bindings),
                                var_to_reduction_descr=expr.var_to_reduction_descr,
                                tags=expr.tags,
                                axes=expr.axes,
@@ -1491,7 +1490,7 @@ class _FunctionConcatenator(Mapper):
         new_fn_defn = FunctionDefinition(
             fn_defn.parameters,
             fn_defn.return_type,
-            Map({ret: new_mapper(ret_val,
+            immutabledict({ret: new_mapper(ret_val,
                                  tuple(other_call.function.returns[ret]
                                        for other_call in other_callsites)
                                  )
@@ -1499,7 +1498,7 @@ class _FunctionConcatenator(Mapper):
             tags=fn_defn.tags,
         )
         return Call(new_fn_defn,
-                    Map(new_bindings),
+                    immutabledict(new_bindings),
                     tags=expr.tags)
 
     def map_named_call_result(self,
@@ -1607,7 +1606,7 @@ def _get_ary_to_concatenatabilities(call_sites: Sequence[Call],
             logger.info("Found a valid concatenatability --\n"
                         f"{fn_concatenatability}")
 
-            yield Map(collector.ary_to_concatenatability)
+            yield immutabledict(collector.ary_to_concatenatability)
 
 
 def _get_replacement_map_post_concatenating(
@@ -1664,7 +1663,7 @@ def _get_replacement_map_post_concatenating(
     new_function = FunctionDefinition(
         template_call_site.function.parameters,
         template_call_site.function.return_type,
-        Map(new_returns),
+        immutabledict(new_returns),
         tags=template_call_site.function.tags,
     )
 
@@ -1700,7 +1699,7 @@ def _get_replacement_map_post_concatenating(
     # construct new call
     new_call = Call(
         function=new_function,
-        bindings=Map(new_call_bindings),
+        bindings=immutabledict(new_call_bindings),
         tags=template_call_site.tags)
 
     output_slicer = _OutputSlicer(inherit_axes=inherit_axes)
@@ -1725,7 +1724,7 @@ def _get_replacement_map_post_concatenating(
         else:
             raise NotImplementedError(type(concat))
 
-    return Map(result)
+    return immutabledict(result)
 
 
 def concatenate_calls(expr: ArrayOrNames,
