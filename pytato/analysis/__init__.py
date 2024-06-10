@@ -450,8 +450,9 @@ def get_node_counts(
         merge_equal: bool = False) -> Dict[type[Array], int]:
     """Returns the number of nodes in DAG *outputs*."""
 
-    from pytato.codegen import normalize_outputs
-    outputs = normalize_outputs(outputs)
+    # This causes miscounting by potentially adding an extra DictOfNamedArrays
+    # from pytato.codegen import normalize_outputs
+    # outputs = normalize_outputs(outputs)
 
     if merge_equal:
         ncm = MergedNodeCountMapper()
@@ -467,8 +468,9 @@ def get_num_nodes(
         merge_equal: bool = False) -> int:
     """Returns the number of nodes in DAG *outputs*."""
 
-    from pytato.codegen import normalize_outputs
-    outputs = normalize_outputs(outputs)
+    # This causes miscounting by potentially adding an extra DictOfNamedArrays
+    # from pytato.codegen import normalize_outputs
+    # outputs = normalize_outputs(outputs)
 
     if merge_equal:
         ncm = MergedNodeCountMapper()
@@ -488,8 +490,9 @@ def get_num_node_instances(
     *strict* is `True`) or are instances of *node_type* (if *strict* is `False`).
     """
 
-    from pytato.codegen import normalize_outputs
-    outputs = normalize_outputs(outputs)
+    # This causes miscounting by potentially adding an extra DictOfNamedArrays
+    # from pytato.codegen import normalize_outputs
+    # outputs = normalize_outputs(outputs)
 
     ncm = NodeCountMapper(node_type)
     ncm(outputs)
