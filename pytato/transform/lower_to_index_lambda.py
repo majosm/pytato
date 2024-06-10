@@ -28,7 +28,7 @@ THE SOFTWARE.
 
 import pymbolic.primitives as prim
 
-from typing import List, Any, Dict, Tuple, TypeVar, TYPE_CHECKING
+from typing import List, Any, Dict, Tuple, TypeVar, Mapping, TYPE_CHECKING
 from immutabledict import immutabledict
 from pytools import UniqueNameGenerator
 from pytato.array import (Array, IndexLambda, Stack, Concatenate,
@@ -102,9 +102,15 @@ def _get_reshaped_indices(expr: Reshape) -> Tuple[ScalarExpression, ...]:
 
 class ToIndexLambdaMixin:
     def _rec_shape(self, shape: ShapeType) -> ShapeType:
-        return tuple(self.rec(s) if isinstance(s, Array)
-                     else s
-                     for s in shape)
+        # type-ignore-reason: apparently mypy cannot substitute typevars
+        # here.
+        new_shape = tuple(
+            self.rec(s) if isinstance(s, Array) else s  # type: ignore[misc]
+            for s in shape)
+        if all(new_s is s for s, new_s in zip(shape, new_shape)):
+            return shape
+        else:
+            return new_shape
 
     if TYPE_CHECKING:
         def rec(
@@ -115,17 +121,28 @@ class ToIndexLambdaMixin:
             return super().rec(  # type: ignore[no-any-return,misc]
                 expr, *args, **kwargs)
 
-    def map_index_lambda(self, expr: IndexLambda) -> IndexLambda:
-        return IndexLambda(expr=expr.expr,
-                           shape=self._rec_shape(expr.shape),
-                           dtype=expr.dtype,
-                           bindings=immutabledict({name: self.rec(bnd)
-                                         for name, bnd
-                                         in sorted(expr.bindings.items())}),
-                           axes=expr.axes,
-                           var_to_reduction_descr=expr.var_to_reduction_descr,
-                           tags=expr.tags,
-                           non_equality_tags=expr.non_equality_tags)
+    def map_index_lambda(self, expr: IndexLambda) -> Array:
+        new_shape = self._rec_shape(expr.shape)
+        new_bindings: Mapping[str, Array] = immutabledict({
+                name: self.rec(subexpr)
+                for name, subexpr in sorted(expr.bindings.items())})
+        if (
+                new_shape is expr.shape
+                and all(
+                    new_bnd is bnd
+                    for bnd, new_bnd in zip(
+                        expr.bindings.values(),
+                        new_bindings.values()))):
+            return expr
+        else:
+            return IndexLambda(expr=expr.expr,
+                    shape=new_shape,
+                    dtype=expr.dtype,
+                    bindings=new_bindings,
+                    axes=expr.axes,
+                    var_to_reduction_descr=expr.var_to_reduction_descr,
+                    tags=expr.tags,
+                    non_equality_tags=expr.non_equality_tags)
 
     def map_stack(self, expr: Stack) -> IndexLambda:
         subscript = tuple(prim.Variable(f"_{i}")
