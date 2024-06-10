@@ -1690,6 +1690,9 @@ def concatenate_calls(expr: ArrayOrNames,
             call_site_batches.append(similar_call_sites)
             unbatched_call_sites -= similar_call_sites
 
+        # FIXME: this doesn't work; need to create/execute batches one at a time,
+        # then repeat the steps above to collect the updated call sites after
+        # concatenating the previous batch
         for call_sites in call_site_batches:
             if len(call_sites) <= 1:
                 if err_if_no_calls:
