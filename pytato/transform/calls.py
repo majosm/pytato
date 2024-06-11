@@ -322,10 +322,6 @@ class _NamedCallResultReplacerPostConcatenate(CopyMapper):
     Mapper to replace instances of :class:`~pytato.function.NamedCallResult` as
     per :attr:`replacement_map`.
 
-    .. attribute:: stack_to_replace_on
-
-        The stack onto which the replacement must be performed.
-
     .. attribute:: current_stack
 
         Records the stack to track which function body the mapper is
@@ -333,12 +329,14 @@ class _NamedCallResultReplacerPostConcatenate(CopyMapper):
         entering the function body of a new :class:`~pytato.function.Call`.
     """
     def __init__(self,
-                 replacement_map: Mapping[NamedCallResult, Array],
-                 current_stack: Tuple[Call, ...],
-                 stack_to_replace_on: Tuple[Call, ...]) -> None:
+                 replacement_map: Mapping[
+                    Tuple[
+                        NamedCallResult,
+                        Tuple[Call, ...]],
+                    Array],
+                 current_stack: Tuple[Call, ...]) -> None:
         self.replacement_map = replacement_map
         self.current_stack = current_stack
-        self.stack_to_replace_on = stack_to_replace_on
         super().__init__()
 
     @memoize_method
@@ -353,42 +351,39 @@ class _NamedCallResultReplacerPostConcatenate(CopyMapper):
         return type(self)(  # type: ignore[call-arg]
             self.replacement_map,  # type: ignore[attr-defined]
             self.current_stack + (expr,),  # type: ignore[attr-defined]
-            self.stack_to_replace_on,  # type: ignore[attr-defined]
         )
 
     def map_call(self, expr: Call) -> AbstractResultWithNamedArrays:
-        new_stack_to_enter = self.current_stack + (expr,)
-        if self.stack_to_replace_on[:len(new_stack_to_enter)] == new_stack_to_enter:
-            # leading call-sites on the stack match the stack on which
-            # replacement must be performed.
-            new_mapper = self.clone_with_new_call_on_stack(expr)
-
-            return Call(new_mapper.map_function_definition(expr.function),
-                        Map({name: self.rec(bnd)
-                             for name, bnd in expr.bindings.items()}),
-                        tags=expr.tags)
+        new_mapper = self.clone_with_new_call_on_stack(expr)
+        new_returns = {name: new_mapper(ret)
+                       for name, ret in expr.function.returns.items()}
+        if all(
+                new_ret is ret
+                for ret, new_ret in zip(
+                    expr.function.returns.values(),
+                    new_returns.values())):
+            new_function = expr.function
         else:
-            # do not map the exprs in function's body
-            new_bindings = {
-                name: self.rec(bnd)
-                for name, bnd in expr.bindings.items()}
-            if all(
+            new_function = attrs.evolve(
+                expr.function, returns=immutabledict(new_returns))
+        new_bindings = {
+            name: self.rec(bnd)
+            for name, bnd in expr.bindings.items()}
+        if (
+                new_function is expr.function
+                and all(
                     new_bnd is bnd
                     for bnd, new_bnd in zip(
                         expr.bindings.values(),
-                        new_bindings.values())):
-                return expr
-            else:
-                return Call(
-                    expr.function, immutabledict(new_bindings), tags=expr.tags)
+                        new_bindings.values()))):
+            return expr
+        else:
+            return Call(new_function, immutabledict(new_bindings), tags=expr.tags)
 
     def map_named_call_result(self, expr: NamedCallResult) -> Array:
-        if self.current_stack == self.stack_to_replace_on:
-            try:
-                return super().rec(self.replacement_map[expr])
-            except KeyError:
-                return super().map_named_call_result(expr)
-        else:
+        try:
+            return super().rec(self.replacement_map[expr, self.current_stack])
+        except KeyError:
             return super().map_named_call_result(expr)
 
 
@@ -1775,6 +1770,10 @@ def concatenate_calls(expr: ArrayOrNames,
 
         call_site_batches: List[FrozenSet[CallSiteLocation]] = []
 
+        replacement_map: Dict[
+            Tuple[NamedCallResult, Tuple[Call, ...]],
+            Array] = {}
+
         while unbatched_call_sites:
             ready_call_sites = frozenset({
                 cs for cs in unbatched_call_sites
@@ -1830,10 +1829,13 @@ def concatenate_calls(expr: ArrayOrNames,
 
             stack, = {cs.stack for cs in call_sites}
 
-            result = _NamedCallResultReplacerPostConcatenate(
-                replacement_map=old_expr_to_new_expr_map,
-                current_stack=(),
-                stack_to_replace_on=stack)(result)
+            replacement_map.update({
+                (old_expr, stack): new_expr
+                for old_expr, new_expr in old_expr_to_new_expr_map.items()})
+
+        result = _NamedCallResultReplacerPostConcatenate(
+            replacement_map=replacement_map,
+            current_stack=())(result)
 
     assert isinstance(result, (Array, AbstractResultWithNamedArrays))
     return result
