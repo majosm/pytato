@@ -1842,6 +1842,13 @@ def concatenate_calls(expr: ArrayOrNames,
                 (old_expr, stack): new_expr
                 for old_expr, new_expr in old_expr_to_new_expr_map.items()})
 
+        # FIXME: Still getting some duplicated `Concatenate`s, not sure why
+        cm = CopyMapper(err_on_collision=False)
+        result = cm(result)
+        replacement_map = {
+            old_expr_and_stack: cm(new_expr)
+            for old_expr_and_stack, new_expr in replacement_map.items()}
+
         result = _NamedCallResultReplacerPostConcatenate(
             replacement_map=replacement_map,
             current_stack=())(result)
