@@ -510,25 +510,26 @@ def get_num_call_sites(outputs: Union[Array, DictOfNamedArrays]) -> int:
 
 # {{{ NodeCollector
 
+# FIXME: Decide if this should be a CombineMapper instead?
 @optimize_mapper(drop_args=True, drop_kwargs=True, inline_get_cache_key=True)
 class NodeCollector(CachedWalkMapper):
     """
-    Collects all nodes of a given type in a DAG.
+    Collects all nodes matching specified criteria in a DAG.
 
     .. attribute:: nodes
 
        The collected nodes.
     """
 
-    def __init__(self, node_type) -> None:
+    def __init__(self, collect_func: Callable[Array, bool]) -> None:
         super().__init__()
-        self.node_type = node_type
+        self.collect_func = collect_func
         self.nodes = set()
 
     @memoize_method
     def clone_for_callee(
             self: NodeCollector, function: FunctionDefinition) -> NodeCollector:
-        return type(self)(self.node_type)
+        return type(self)(self.collect_func)
 
     def get_cache_key(self, expr: ArrayOrNames) -> int:
         return id(expr)
@@ -544,27 +545,31 @@ class NodeCollector(CachedWalkMapper):
         for subexpr in expr.returns.values():
             new_mapper(subexpr, *args, **kwargs)
 
+        # FIXME: Should probably distinguish nodes by stack?
         self.nodes |= new_mapper.nodes
 
         self.post_visit(expr, *args, **kwargs)
 
     def post_visit(self, expr: Any) -> None:
-        if isinstance(expr, self.node_type):
+        if self.collect_func(expr):
             self.nodes.add(expr)
 
 
 def collect_nodes_of_type(
         outputs: Union[Array, DictOfNamedArrays],
-        node_type: type[Array]) -> Set[Array]:
+        node_type: type[Array]) -> FrozenSet[Array]:
     """Returns the nodes that are instances of *node_type* in DAG *outputs*."""
-
     from pytato.codegen import normalize_outputs
     outputs = normalize_outputs(outputs)
 
-    nc = NodeCollector(node_type)
+    def collect_func(expr):
+        return isinstance(expr, node_type)
+
+    nc = NodeCollector(collect_func)
     nc(outputs)
 
-    return nc.nodes
+    return frozenset(nc.nodes)
+
 
 # }}}
 
