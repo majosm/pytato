@@ -26,7 +26,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Mapping
 
 from pymbolic.mapper.optimize import optimize_mapper
 
@@ -655,10 +655,11 @@ def get_num_call_sites(outputs: Array | DictOfNamedArrays) -> int:
 
 # {{{ NodeCollector
 
+# FIXME: Decide if this should be a CombineMapper instead?
 @optimize_mapper(drop_args=True, drop_kwargs=True, inline_get_cache_key=True)
 class NodeCollector(CachedWalkMapper):
     """
-    Collects all nodes of a given type in a DAG.
+    Collects all nodes matching specified criteria in a DAG.
 
     .. attribute:: nodes
 
@@ -667,10 +668,10 @@ class NodeCollector(CachedWalkMapper):
 
     def __init__(
             self,
-            node_type: type[NodeT],
+            collect_func: Callable[[NodeT], bool],
             traverse_functions: bool = True) -> None:
         super().__init__()
-        self.node_type = node_type
+        self.collect_func = collect_func
         self.traverse_functions = traverse_functions
         self.nodes: set[NodeT] = set()
 
@@ -679,13 +680,13 @@ class NodeCollector(CachedWalkMapper):
 
     def clone_for_callee(
             self: NodeCollector, function: FunctionDefinition) -> NodeCollector:
-        return type(self)(self.node_type)
+        return type(self)(self.collect_func)
 
     def visit(self, expr: Any) -> bool:
         return not isinstance(expr, FunctionDefinition) or self.traverse_functions
 
     def post_visit(self, expr: Any) -> None:
-        if isinstance(expr, self.node_type):
+        if isinstance(expr, NodeT) and self.collect_func(expr):
             self.nodes.add(expr)
 
     def map_function_definition(self, expr: FunctionDefinition) -> None:
@@ -703,16 +704,19 @@ class NodeCollector(CachedWalkMapper):
 
 def collect_nodes_of_type(
         outputs: Array | DictOfNamedArrays,
-        node_type: type[NodeT]) -> set[NodeT]:
+        node_type: type[NodeT]) -> frozenset[NodeT]:
     """Returns the nodes that are instances of *node_type* in DAG *outputs*."""
-
     from pytato.codegen import normalize_outputs
     outputs = normalize_outputs(outputs)
 
-    nc = NodeCollector(node_type)
+    def collect_func(expr: NodeT) -> bool:
+        return isinstance(expr, node_type)
+
+    nc = NodeCollector(collect_func)
     nc(outputs)
 
-    return nc.nodes
+    return frozenset(nc.nodes)
+
 
 # }}}
 
