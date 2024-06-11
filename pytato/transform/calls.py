@@ -1706,6 +1706,9 @@ def _get_replacement_map_post_concatenating(
         concat = ary_to_concatenatability[((), output_ary)]
         new_return = new_call[output_name]
         if isinstance(concat, ConcatableIfConstant):
+            # FIXME: Does it make sense to not concatenate if some arguments are
+            # ConcatableIfConstant and some are ConcatableAlongAxis? Seems like that
+            # would cause problems...
             for cs in call_sites:
                 result[cs[output_name]] = new_return
         elif isinstance(concat, ConcatableAlongAxis):
