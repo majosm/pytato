@@ -2236,33 +2236,6 @@ def tag_user_nodes(
 # }}}
 
 
-# {{{ BranchMorpher
-
-class BranchMorpher(CopyMapper):
-    """
-    A mapper that replaces equal segments of graphs with identical objects.
-    """
-    def __init__(self) -> None:
-        super().__init__()
-        self.result_cache: Dict[ArrayOrNames, ArrayOrNames] = {}
-
-    def cache_key(self, expr: CachedMapperT) -> Any:
-        return (id(expr), expr)
-
-    # type-ignore reason: incompatible with Mapper.rec
-    def rec(self, expr: MappedT) -> MappedT:  # type: ignore[override]
-        rec_expr = super().rec(expr)
-        try:
-            # type-ignored because 'result_cache' maps to ArrayOrNames
-            return self.result_cache[rec_expr]   # type: ignore[return-value]
-        except KeyError:
-            self.result_cache[rec_expr] = rec_expr
-            # type-ignored because of super-class' relaxed types
-            return rec_expr  # type: ignore[no-any-return]
-
-# }}}
-
-
 # {{{ deduplicate_data_wrappers
 
 def _get_data_dedup_cache_key(ary: DataInterface) -> Hashable:
@@ -2345,6 +2318,9 @@ def deduplicate_data_wrappers(array_or_names: ArrayOrNames) -> ArrayOrNames:
 
     array_or_names = map_and_copy(array_or_names, cached_data_wrapper_if_present)
 
+    # Remove any arrays that are now duplicates due to data wrapper deduplication
+    array_or_names = CopyMapper(err_on_collision=False)(array_or_names)
+
     if data_wrappers_encountered:
         transform_logger.debug("data wrapper de-duplication: "
                                "%d encountered, %d kept, %d eliminated",
@@ -2352,7 +2328,7 @@ def deduplicate_data_wrappers(array_or_names: ArrayOrNames) -> ArrayOrNames:
                                len(data_wrapper_cache),
                                data_wrappers_encountered - len(data_wrapper_cache))
 
-    return BranchMorpher()(array_or_names)
+    return array_or_names
 
 # }}}
 
