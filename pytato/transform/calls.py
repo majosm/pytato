@@ -78,7 +78,7 @@ class PlaceholderSubstitutor(CopyMapper):
     """
 
     def __init__(self, substitutions: Mapping[str, Array]) -> None:
-        super().__init__()
+        super().__init__(err_on_duplication=False)
         self.substitutions = substitutions
 
     def map_placeholder(self, expr: Placeholder) -> Array:
@@ -92,6 +92,14 @@ class Inliner(CopyMapper):
     """
     Primary mapper for :func:`inline_calls`.
     """
+    def __init__(self) -> None:
+        super().__init__(err_on_collision=False)
+
+    @memoize_method
+    def clone_for_callee(
+            self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
+        return type(self)()
+
     def map_call(self, expr: Call) -> AbstractResultWithNamedArrays:
         # inline call sites within the callee.
         new_expr = super().map_call(expr)
