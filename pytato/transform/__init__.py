@@ -1462,8 +1462,9 @@ def precompute_subexpressions(
                 f"{type(subexpr).__name__} with {nnodes} nodes.")
     # FIXME: Assemble into DictOfNamedArrays and evaluate all in one go? Might be a
     # lot of overhead otherwise
+    cpm = CopyMapper(err_on_collision=False)
     subexpr_to_evaled_subexpr = {
-        subexpr: eval_func(subexpr)
+        subexpr: cpm(eval_func(subexpr))
         for subexpr in precomputable_subexprs}
     return _PrecomputableSubexpressionReplacer(subexpr_to_evaled_subexpr)(expr)
     # from pytato.array import make_dict_of_named_arrays
