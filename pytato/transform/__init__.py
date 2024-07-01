@@ -207,7 +207,7 @@ class CachedMapper(Mapper, Generic[CachedMapperT]):
     .. automethod:: clone_for_callee
     """
 
-    def __init__(self, err_on_collision: bool = False) -> None:
+    def __init__(self, err_on_collision: bool = True) -> None:
         super().__init__()
         self._err_on_collision = err_on_collision
         self._seen_exprs: Dict[Hashable, ArrayOrNames] = {}
@@ -262,7 +262,7 @@ class TransformMapper(CachedMapper[ArrayOrNames]):
 
     def __init__(
             self,
-            err_on_collision: bool = False,
+            err_on_collision: bool = True,
             err_on_duplication: Optional[bool] = None) -> None:
         """
         :arg err_on_collision: Raise an exception if two distinct input array
@@ -353,7 +353,7 @@ class TransformMapperWithExtraArgs(CachedMapper[ArrayOrNames]):
 
     def __init__(
             self,
-            err_on_collision: bool = False,
+            err_on_collision: bool = True,
             err_on_duplication: Optional[bool] = None) -> None:
         """
         :arg err_on_collision: Raise an exception if two distinct input array
