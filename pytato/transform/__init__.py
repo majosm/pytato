@@ -359,7 +359,7 @@ class CachedMapper(Mapper, Generic[CachedMapperT, CachedMapperFunctionT]):
 
     def __init__(
             self,
-            err_on_collision: bool = False,
+            err_on_collision: bool = True,
             # Arrays are cached separately for each call stack frame, but
             # functions are cached globally
             _function_cache: _FunctionCacheT[CachedMapperFunctionT] | None = None
@@ -550,7 +550,7 @@ class TransformMapper(CachedMapper[ArrayOrNames, FunctionDefinition]):
 
     def __init__(
             self,
-            err_on_collision: bool = False,
+            err_on_collision: bool = True,
             err_on_no_op_duplication: bool | None = None,
             _function_cache: _FunctionCacheT | None = None
             ) -> None:
@@ -633,7 +633,7 @@ class TransformMapperWithExtraArgsCache(
     def __init__(
             self,
             key_func: Callable[..., CacheKeyT],
-            err_on_collision: bool = False,
+            err_on_collision: bool = True,
             err_on_no_op_duplication: bool | None = None) -> None:
         """
         Initialize the cache.
