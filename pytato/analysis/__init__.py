@@ -406,10 +406,10 @@ class _NodeCountMapperBase(CachedWalkMapper):
         from collections import defaultdict
         self.node_type_to_count = defaultdict(int)
 
-    @memoize_method
     def map_function_definition(self, /, expr: FunctionDefinition,
                                 *args: Any, **kwargs: Any) -> None:
-        if not self.visit(expr):
+        cache_key = self.get_func_def_cache_key(expr)
+        if not self.visit(expr) or cache_key in self._visited_functions:
             return
 
         new_mapper = self.clone_for_callee(expr)
@@ -418,6 +418,8 @@ class _NodeCountMapperBase(CachedWalkMapper):
 
         for node_type, count in new_mapper.node_type_to_count.items():
             self.node_type_to_count[node_type] += count
+
+        self._visited_functions.add(cache_key)
 
         self.post_visit(expr, *args, **kwargs)
 
@@ -644,10 +646,10 @@ class NodeCollector(CachedWalkMapper):
     def get_func_def_cache_key(self, expr: FunctionDefinition) -> int:
         return id(expr)
 
-    @memoize_method
     def map_function_definition(self, /, expr: FunctionDefinition,
                                 *args: Any, **kwargs: Any) -> None:
-        if not self.visit(expr):
+        cache_key = self.get_func_def_cache_key(expr)
+        if not self.visit(expr) or cache_key in self._visited_functions:
             return
 
         new_mapper = self.clone_for_callee(expr)
@@ -656,6 +658,8 @@ class NodeCollector(CachedWalkMapper):
 
         # FIXME: Should probably distinguish nodes by stack?
         self.nodes |= new_mapper.nodes
+
+        self._visited_functions.add(cache_key)
 
         self.post_visit(expr, *args, **kwargs)
 
