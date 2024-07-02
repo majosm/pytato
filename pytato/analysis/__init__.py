@@ -35,6 +35,7 @@ from pytato.function import FunctionDefinition, Call, NamedCallResult
 from pytato.transform import Mapper, ArrayOrNames, CachedWalkMapper
 from pytato.loopy import LoopyCall
 from pymbolic.mapper.optimize import optimize_mapper
+from pytools import memoize_method
 
 if TYPE_CHECKING:
     from pytato.distributed.nodes import DistributedRecv, DistributedSendRefHolder
