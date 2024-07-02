@@ -124,7 +124,8 @@ class ToIndexLambdaMixin:
                                          in sorted(expr.bindings.items())}),
                            axes=expr.axes,
                            var_to_reduction_descr=expr.var_to_reduction_descr,
-                           tags=expr.tags)
+                           tags=expr.tags,
+                           non_equality_tags=expr.non_equality_tags)
 
     def map_stack(self, expr: Stack) -> IndexLambda:
         subscript = tuple(prim.Variable(f"_{i}")
@@ -158,7 +159,8 @@ class ToIndexLambdaMixin:
                            axes=expr.axes,
                            bindings=immutabledict(bindings),
                            var_to_reduction_descr=immutabledict(),
-                           tags=expr.tags)
+                           tags=expr.tags,
+                           non_equality_tags=expr.non_equality_tags)
 
     def map_concatenate(self, expr: Concatenate) -> IndexLambda:
         from pymbolic.primitives import If, Comparison, Subscript
@@ -206,7 +208,8 @@ class ToIndexLambdaMixin:
                            bindings=immutabledict(bindings),
                            axes=expr.axes,
                            var_to_reduction_descr=immutabledict(),
-                           tags=expr.tags)
+                           tags=expr.tags,
+                           non_equality_tags=expr.non_equality_tags)
 
     def map_einsum(self, expr: Einsum) -> IndexLambda:
         import operator
@@ -267,7 +270,7 @@ class ToIndexLambdaMixin:
             from pytato.reductions import SumReductionOperation
             inner_expr = Reduce(inner_expr,
                                 SumReductionOperation(),
-                                redn_bounds)
+                                immutabledict(redn_bounds))
 
         return IndexLambda(expr=inner_expr,
                            shape=self._rec_shape(expr.shape),
@@ -275,7 +278,8 @@ class ToIndexLambdaMixin:
                            bindings=immutabledict(bindings),
                            axes=expr.axes,
                            var_to_reduction_descr=immutabledict(var_to_redn_descr),
-                           tags=expr.tags)
+                           tags=expr.tags,
+                           non_equality_tags=expr.non_equality_tags)
 
     def map_roll(self, expr: Roll) -> IndexLambda:
         from pytato.utils import dim_to_index_lambda_components
@@ -302,7 +306,8 @@ class ToIndexLambdaMixin:
                                      for name, bnd in bindings.items()}),
                            axes=expr.axes,
                            var_to_reduction_descr=immutabledict(),
-                           tags=expr.tags)
+                           tags=expr.tags,
+                           non_equality_tags=expr.non_equality_tags)
 
     def map_contiguous_advanced_index(self,
                                       expr: AdvancedIndexInContiguousAxes
@@ -367,6 +372,7 @@ class ToIndexLambdaMixin:
                            axes=expr.axes,
                            var_to_reduction_descr=immutabledict(),
                            tags=expr.tags,
+                           non_equality_tags=expr.non_equality_tags,
                            )
 
     def map_non_contiguous_advanced_index(
@@ -429,6 +435,7 @@ class ToIndexLambdaMixin:
                            axes=expr.axes,
                            var_to_reduction_descr=immutabledict(),
                            tags=expr.tags,
+                           non_equality_tags=expr.non_equality_tags,
                            )
 
     def map_basic_index(self, expr: BasicIndex) -> IndexLambda:
@@ -462,6 +469,7 @@ class ToIndexLambdaMixin:
                            axes=expr.axes,
                            var_to_reduction_descr=immutabledict(),
                            tags=expr.tags,
+                           non_equality_tags=expr.non_equality_tags,
                            )
 
     def map_reshape(self, expr: Reshape) -> IndexLambda:
@@ -473,7 +481,8 @@ class ToIndexLambdaMixin:
                            bindings=immutabledict({"_in0": self.rec(expr.array)}),
                            axes=expr.axes,
                            var_to_reduction_descr=immutabledict(),
-                           tags=expr.tags)
+                           tags=expr.tags,
+                           non_equality_tags=expr.non_equality_tags)
 
     def map_axis_permutation(self, expr: AxisPermutation) -> IndexLambda:
         indices = [None] * expr.ndim
@@ -488,7 +497,8 @@ class ToIndexLambdaMixin:
                            bindings=immutabledict({"_in0": self.rec(expr.array)}),
                            axes=expr.axes,
                            var_to_reduction_descr=immutabledict(),
-                           tags=expr.tags)
+                           tags=expr.tags,
+                           non_equality_tags=expr.non_equality_tags)
 
 
 class ToIndexLambdaMapper(Mapper, ToIndexLambdaMixin):
