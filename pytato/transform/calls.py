@@ -75,17 +75,23 @@ class PlaceholderSubstitutor(CopyMapper):
 
         A mapping from the placeholder name to the array that it is to be
         substituted with.
+
+    .. note::
+
+        This mapper does not deduplicate subexpressions that occur in both the mapped
+        expression and the substitutions. Must follow up with a
+        :class:`pytato.transform.CopyMapper` if duplicates need to be removed.
     """
 
     def __init__(self, substitutions: Mapping[str, Array]) -> None:
-        super().__init__(err_on_duplication=False)
+        super().__init__()
         self.substitutions = substitutions
 
     def map_placeholder(self, expr: Placeholder) -> Array:
-        if expr.name in self.substitutions:
-            return self.rec(self.substitutions[expr.name])
-        else:
-            return super().map_placeholder(expr)
+        # Can't call rec() to remove duplicates here, because the substituted-in
+        # expression may potentially contain unrelated placeholders whose names
+        # collide with the ones being replaced
+        return self.substitutions[expr.name]
 
     def map_call(self, expr: Call) -> Call:
         # Only operates within the current stack frame
@@ -97,6 +103,9 @@ class Inliner(CopyMapper):
     Primary mapper for :func:`inline_calls`.
     """
     def __init__(self) -> None:
+        # Must use err_on_collision=False because we're combining expressions
+        # that were previously in two different call stack frames (and were thus
+        # cached separately)
         super().__init__(err_on_collision=False)
 
     @memoize_method
@@ -105,20 +114,16 @@ class Inliner(CopyMapper):
         return type(self)()
 
     def map_call(self, expr: Call) -> AbstractResultWithNamedArrays:
-        # inline call sites within the callee.
-        new_expr = super().map_call(expr)
-        assert isinstance(new_expr, Call)
-
         if expr.tags_of_type(InlineCallTag):
-            substitutor = PlaceholderSubstitutor(new_expr.bindings)
+            substitutor = PlaceholderSubstitutor(expr.bindings)
 
             return DictOfNamedArrays(
                 {name: self.rec(substitutor(ret))
-                 for name, ret in new_expr.function.returns.items()},
-                tags=new_expr.tags
+                 for name, ret in expr.function.returns.items()},
+                tags=expr.tags
             )
         else:
-            return new_expr
+            return super().map_call(expr)
 
     def map_named_call_result(self, expr: NamedCallResult) -> Array:
         new_call_or_inlined_expr = self.rec(expr._container)
