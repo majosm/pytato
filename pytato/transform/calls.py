@@ -87,6 +87,10 @@ class PlaceholderSubstitutor(CopyMapper):
         else:
             return super().map_placeholder(expr)
 
+    def map_call(self, expr: Call) -> Call:
+        # Only operates within the current stack frame
+        return expr
+
 
 class Inliner(CopyMapper):
     """
