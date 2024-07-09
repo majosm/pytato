@@ -406,22 +406,21 @@ class _NodeCountMapperBase(CachedWalkMapper):
         from collections import defaultdict
         self.node_type_to_count = defaultdict(int)
 
-    def map_function_definition(self, /, expr: FunctionDefinition,
-                                *args: Any, **kwargs: Any) -> None:
+    def map_function_definition(self, expr: FunctionDefinition) -> None:
         cache_key = self.get_func_def_cache_key(expr)
         if not self.visit(expr) or cache_key in self._visited_functions:
             return
 
         new_mapper = self.clone_for_callee(expr)
         for subexpr in expr.returns.values():
-            new_mapper(subexpr, *args, **kwargs)
+            new_mapper(subexpr)
 
         for node_type, count in new_mapper.node_type_to_count.items():
             self.node_type_to_count[node_type] += count
 
         self._visited_functions.add(cache_key)
 
-        self.post_visit(expr, *args, **kwargs)
+        self.post_visit(expr)
 
     def post_visit(self, expr: Any) -> None:
         self.node_type_to_count[type(expr)] += 1
@@ -553,7 +552,7 @@ class OutlinedNodeCountMapper(CachedWalkMapper):
     def get_func_def_cache_key(self, expr: FunctionDefinition) -> int:
         return id(expr)
 
-    def map_function_definition(self, /, expr: FunctionDefinition) -> None:
+    def map_function_definition(self, expr: FunctionDefinition) -> None:
         cache_key = self.get_func_def_cache_key(expr)
         if not self.visit(expr) or cache_key in self._visited_functions:
             return
@@ -569,7 +568,7 @@ class OutlinedNodeCountMapper(CachedWalkMapper):
 
         self.post_visit(expr)
 
-    def map_call(self, expr: Call, *args: Any, **kwargs: Any) -> None:
+    def map_call(self, expr: Call) -> None:
         if not self.visit(expr):
             return
 
@@ -646,22 +645,21 @@ class NodeCollector(CachedWalkMapper):
     def get_func_def_cache_key(self, expr: FunctionDefinition) -> int:
         return id(expr)
 
-    def map_function_definition(self, /, expr: FunctionDefinition,
-                                *args: Any, **kwargs: Any) -> None:
+    def map_function_definition(self, expr: FunctionDefinition) -> None:
         cache_key = self.get_func_def_cache_key(expr)
         if not self.visit(expr) or cache_key in self._visited_functions:
             return
 
         new_mapper = self.clone_for_callee(expr)
         for subexpr in expr.returns.values():
-            new_mapper(subexpr, *args, **kwargs)
+            new_mapper(subexpr)
 
         # FIXME: Should probably distinguish nodes by stack?
         self.nodes |= new_mapper.nodes
 
         self._visited_functions.add(cache_key)
 
-        self.post_visit(expr, *args, **kwargs)
+        self.post_visit(expr)
 
     def post_visit(self, expr: Any) -> None:
         if self.collect_func(expr):
