@@ -46,9 +46,21 @@ __doc__ = """
 
 .. autofunction:: is_einsum_similar_to_subscript
 
+.. autofunction:: get_node_counts
+
 .. autofunction:: get_num_nodes
 
+.. autofunction:: get_num_node_instances
+
+.. autofunction:: get_outlined_node_counts
+
+.. autofunction:: get_outlined_nodes
+
 .. autofunction:: get_num_call_sites
+
+.. autofunction:: collect_nodes_of_type
+
+.. autofunction:: collect_materialized_nodes
 
 .. autoclass:: DirectPredecessorsGetter
 """
@@ -379,8 +391,41 @@ class DirectPredecessorsGetter(Mapper):
 
 # {{{ NodeCountMapper
 
+class _NodeCountMapperBase(CachedWalkMapper):
+    """
+    Counts the number of nodes in a DAG.
+
+    .. attribute:: node_type_to_count
+
+       A mapping from node type to the number of nodes of that type in the DAG.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        from collections import defaultdict
+        self.node_type_to_count = defaultdict(int)
+
+    @memoize_method
+    def map_function_definition(self, /, expr: FunctionDefinition,
+                                *args: Any, **kwargs: Any) -> None:
+        if not self.visit(expr):
+            return
+
+        new_mapper = self.clone_for_callee(expr)
+        for subexpr in expr.returns.values():
+            new_mapper(subexpr, *args, **kwargs)
+
+        for node_type, count in new_mapper.node_type_to_count.items():
+            self.node_type_to_count[node_type] += count
+
+        self.post_visit(expr, *args, **kwargs)
+
+    def post_visit(self, expr: Any) -> None:
+        self.node_type_to_count[type(expr)] += 1
+
+
 @optimize_mapper(drop_args=True, drop_kwargs=True, inline_get_cache_key=True)
-class NodeCountMapper(CachedWalkMapper):
+class NodeCountMapper(_NodeCountMapperBase):
     """
     Counts the number of nodes in a DAG.
 
@@ -388,50 +433,116 @@ class NodeCountMapper(CachedWalkMapper):
 
        The number of nodes.
     """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.count = 0
-
     def get_cache_key(self, expr: ArrayOrNames) -> int:
         return id(expr)
 
     def get_func_def_cache_key(self, expr: FunctionDefinition) -> int:
         return id(expr)
 
-    def post_visit(self, expr: Any) -> None:
-        self.count += 1
-
-
-def get_num_nodes(outputs: Union[Array, DictOfNamedArrays]) -> int:
-    """Returns the number of nodes in DAG *outputs*."""
-
-    from pytato.codegen import normalize_outputs
-    outputs = normalize_outputs(outputs)
-
-    ncm = NodeCountMapper()
-    ncm(outputs)
-
-    return ncm.count
-
-# }}}
-
-
-# {{{ CallSiteCountMapper
 
 @optimize_mapper(drop_args=True, drop_kwargs=True, inline_get_cache_key=True)
-class CallSiteCountMapper(CachedWalkMapper):
+class MergedNodeCountMapper(_NodeCountMapperBase):
     """
-    Counts the number of :class:`~pytato.Call` nodes in a DAG.
+    Counts the number of nodes in a DAG.
 
     .. attribute:: count
 
        The number of nodes.
     """
+    def get_cache_key(self, expr: ArrayOrNames) -> ArrayOrNames:
+        return expr
+
+    def get_func_def_cache_key(self, expr: FunctionDefinition) -> FunctionDefinition:
+        return expr
+
+
+def get_node_counts(
+        outputs: Union[Array, DictOfNamedArrays],
+        merge_equal: bool = False) -> Dict[type[Array], int]:
+    """Returns the number of nodes in DAG *outputs*."""
+
+    # This causes miscounting by potentially adding an extra DictOfNamedArrays
+    # from pytato.codegen import normalize_outputs
+    # outputs = normalize_outputs(outputs)
+
+    if merge_equal:
+        ncm = MergedNodeCountMapper()
+    else:
+        ncm = NodeCountMapper()
+    ncm(outputs)
+
+    return ncm.node_type_to_count
+
+
+def get_num_nodes(
+        outputs: Union[Array, DictOfNamedArrays],
+        merge_equal: bool = False) -> int:
+    """Returns the number of nodes in DAG *outputs*."""
+
+    # This causes miscounting by potentially adding an extra DictOfNamedArrays
+    # from pytato.codegen import normalize_outputs
+    # outputs = normalize_outputs(outputs)
+
+    if merge_equal:
+        ncm = MergedNodeCountMapper()
+    else:
+        ncm = NodeCountMapper()
+    ncm(outputs)
+
+    return sum(ncm.node_type_to_count.values())
+
+
+
+def get_num_node_instances(
+        outputs: Union[Array, DictOfNamedArrays],
+        node_type: type[Array],
+        strict: bool = True) -> int:
+    """
+    Returns the number of nodes in DAG *outputs* that have type *node_type* (if
+    *strict* is `True`) or are instances of *node_type* (if *strict* is `False`).
+    """
+
+    # This causes miscounting by potentially adding an extra DictOfNamedArrays
+    # from pytato.codegen import normalize_outputs
+    # outputs = normalize_outputs(outputs)
+
+    ncm = NodeCountMapper(node_type)
+    ncm(outputs)
+
+    if strict:
+        return ncm.node_type_to_count[node_type]
+    else:
+        return sum(
+            count
+            for nt, count in ncm.node_type_to_count
+            if isinstance(nt, node_type))
+
+
+def get_num_call_sites(outputs: Union[Array, DictOfNamedArrays]) -> int:
+    """Returns the number of :class:`pytato.Call` nodes in DAG *outputs*."""
+    return get_num_node_instances(outputs, node_type=Call, strict=False)
+
+# }}}
+
+
+# {{{ OutlinedNodeCountMapper
+
+# FIXME: Change this to count nodes in tagged subexpressions instead?
+
+class OutlinedNodeCountMapper(CachedWalkMapper):
+    """
+    Counts the number of nodes inside outlined functions in a DAG.
+
+    .. attribute:: node_type_to_count
+
+       A mapping from node type to the number of nodes of that type in the outlined
+       functions of the DAG.
+    """
 
     def __init__(self) -> None:
         super().__init__()
-        self.count = 0
+        from collections import defaultdict
+        self.node_type_to_count = defaultdict(int)
 
     def get_cache_key(self, expr: ArrayOrNames) -> int:
         return id(expr)
@@ -447,27 +558,140 @@ class CallSiteCountMapper(CachedWalkMapper):
         new_mapper = self.clone_for_callee(expr)
         for subexpr in expr.returns.values():
             new_mapper(subexpr)
-        self.count += new_mapper.count
+
+        for node_type, count in new_mapper.node_type_to_count.items():
+            self.node_type_to_count[node_type] += count
 
         self._visited_functions.add(cache_key)
 
         self.post_visit(expr)
 
-    def post_visit(self, expr: Any) -> None:
-        if isinstance(expr, Call):
-            self.count += 1
+    def map_call(self, expr: Call, *args: Any, **kwargs: Any) -> None:
+        if not self.visit(expr):
+            return
+
+        ncm = NodeCountMapper()
+        for ret in expr.function.returns.values():
+            ncm(ret)
+
+        for node_type, count in ncm.node_type_to_count.items():
+            self.node_type_to_count[node_type] += count
+
+        self.map_function_definition(expr.function)
+        for bnd in expr.bindings.values():
+            if isinstance(bnd, Array):
+                self.rec(bnd)
+
+        self.post_visit(expr)
 
 
-def get_num_call_sites(outputs: Union[Array, DictOfNamedArrays]) -> int:
-    """Returns the number of nodes in DAG *outputs*."""
+def get_outlined_node_counts(
+        outputs: Union[Array, DictOfNamedArrays]) -> Dict[type[Array], int]:
+    """Returns the number of outlined nodes in DAG *outputs*."""
 
     from pytato.codegen import normalize_outputs
     outputs = normalize_outputs(outputs)
 
-    cscm = CallSiteCountMapper()
-    cscm(outputs)
+    oncm = OutlinedNodeCountMapper()
+    oncm(outputs)
 
-    return cscm.count
+    return oncm.node_type_to_count
+
+
+def get_num_outlined_nodes(
+        outputs: Union[Array, DictOfNamedArrays]) -> int:
+    """Returns the number of outlined nodes in DAG *outputs*."""
+
+    from pytato.codegen import normalize_outputs
+    outputs = normalize_outputs(outputs)
+
+    oncm = OutlinedNodeCountMapper()
+    oncm(outputs)
+
+    return sum(oncm.node_type_to_count.values())
+
+# }}}
+
+
+# {{{ NodeCollector
+
+# FIXME: Decide if this should be a CombineMapper instead?
+@optimize_mapper(drop_args=True, drop_kwargs=True, inline_get_cache_key=True)
+class NodeCollector(CachedWalkMapper):
+    """
+    Collects all nodes matching specified criteria in a DAG.
+
+    .. attribute:: nodes
+
+       The collected nodes.
+    """
+
+    def __init__(self, collect_func: Callable[Array, bool]) -> None:
+        super().__init__()
+        self.collect_func = collect_func
+        self.nodes = set()
+
+    @memoize_method
+    def clone_for_callee(
+            self: NodeCollector, function: FunctionDefinition) -> NodeCollector:
+        return type(self)(self.collect_func)
+
+    def get_cache_key(self, expr: ArrayOrNames) -> int:
+        return id(expr)
+        # return expr
+
+    def get_func_def_cache_key(self, expr: FunctionDefinition) -> int:
+        return id(expr)
+
+    @memoize_method
+    def map_function_definition(self, /, expr: FunctionDefinition,
+                                *args: Any, **kwargs: Any) -> None:
+        if not self.visit(expr):
+            return
+
+        new_mapper = self.clone_for_callee(expr)
+        for subexpr in expr.returns.values():
+            new_mapper(subexpr, *args, **kwargs)
+
+        # FIXME: Should probably distinguish nodes by stack?
+        self.nodes |= new_mapper.nodes
+
+        self.post_visit(expr, *args, **kwargs)
+
+    def post_visit(self, expr: Any) -> None:
+        if self.collect_func(expr):
+            self.nodes.add(expr)
+
+
+def collect_nodes_of_type(
+        outputs: Union[Array, DictOfNamedArrays],
+        node_type: type[Array]) -> FrozenSet[Array]:
+    """Returns the nodes that are instances of *node_type* in DAG *outputs*."""
+    from pytato.codegen import normalize_outputs
+    outputs = normalize_outputs(outputs)
+
+    def collect_func(expr):
+        return isinstance(expr, node_type)
+
+    nc = NodeCollector(collect_func)
+    nc(outputs)
+
+    return frozenset(nc.nodes)
+
+
+def collect_materialized_nodes(
+        outputs: Union[Array, DictOfNamedArrays]) -> FrozenSet[Array]:
+    from pytato.codegen import normalize_outputs
+    outputs = normalize_outputs(outputs)
+
+    def collect_func(expr):
+        from pytato.tags import ImplStored
+        return bool(expr.tags_of_type(ImplStored))
+
+    nc = NodeCollector(collect_func)
+    nc(outputs)
+
+    return frozenset(nc.nodes)
 
 # }}}
 
