@@ -43,8 +43,8 @@ import logging
 from typing import (
     TYPE_CHECKING,
     Any,
+    Collection,
     Hashable,
-    Iterable,
     List,
     Mapping,
     TypeVar,
@@ -594,11 +594,11 @@ class AxisTagAttacher(CopyMapper):
     A mapper that tags the axes in a DAG as prescribed by *axis_to_tags*.
     """
     def __init__(self,
-                 axis_to_tags: Mapping[tuple[Array, int], Iterable[Tag]],
+                 axis_to_tags: Mapping[tuple[Array, int], Collection[Tag]],
                  tag_corresponding_redn_descr: bool,
                  _function_cache: dict[Hashable, FunctionDefinition] | None = None):
         super().__init__(_function_cache=_function_cache)
-        self.axis_to_tags: Mapping[tuple[Array, int], Iterable[Tag]] = axis_to_tags
+        self.axis_to_tags: Mapping[tuple[Array, int], Collection[Tag]] = axis_to_tags
         self.tag_corresponding_redn_descr: bool = tag_corresponding_redn_descr
 
     def rec(self, expr: ArrayOrNames) -> Any:
