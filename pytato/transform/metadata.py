@@ -41,6 +41,7 @@ import logging
 from typing import (
     TYPE_CHECKING,
     Any,
+    Collection,
     Iterable,
     List,
     Mapping,
@@ -625,11 +626,11 @@ class AxisTagAttacher(CopyMapper):
     _FunctionCacheT: TypeAlias = CopyMapper._FunctionCacheT
 
     def __init__(self,
-                 axis_to_tags: Mapping[tuple[Array, int], Iterable[Tag]],
+                 axis_to_tags: Mapping[tuple[Array, int], Collection[Tag]],
                  tag_corresponding_redn_descr: bool,
                  _function_cache: _FunctionCacheT | None = None):
         super().__init__(_function_cache=_function_cache)
-        self.axis_to_tags: Mapping[tuple[Array, int], Iterable[Tag]] = axis_to_tags
+        self.axis_to_tags: Mapping[tuple[Array, int], Collection[Tag]] = axis_to_tags
         self.tag_corresponding_redn_descr: bool = tag_corresponding_redn_descr
 
     def _attach_tags(self, expr: Array, rec_expr: Array) -> Array:
