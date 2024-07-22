@@ -25,8 +25,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from typing import (Mapping, Dict, Union, Set, Tuple, Any, FrozenSet,
-                    TYPE_CHECKING)
+from typing import (Mapping, Callable, Dict, Hashable, Optional, Union, Set, Tuple,
+                    Any, FrozenSet, TYPE_CHECKING)
 from pytato.array import (Array, IndexLambda, Stack, Concatenate, Einsum,
                           DictOfNamedArrays, NamedArray,
                           IndexBase, IndexRemappingBase, InputArgumentBase,
@@ -35,7 +35,6 @@ from pytato.function import FunctionDefinition, Call, NamedCallResult
 from pytato.transform import Mapper, ArrayOrNames, CachedWalkMapper
 from pytato.loopy import LoopyCall
 from pymbolic.mapper.optimize import optimize_mapper
-from pytools import memoize_method
 
 if TYPE_CHECKING:
     from pytato.distributed.nodes import DistributedRecv, DistributedSendRefHolder
@@ -401,8 +400,11 @@ class _NodeCountMapperBase(CachedWalkMapper):
        A mapping from node type to the number of nodes of that type in the DAG.
     """
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(
+            self,
+            _function_clones: Optional[
+                Dict[Hashable, _NodeCountMapperBase]] = None) -> None:
+        super().__init__(_function_clones=_function_clones)
         from collections import defaultdict
         self.node_type_to_count = defaultdict(int)
 
@@ -494,7 +496,6 @@ def get_num_nodes(
     return sum(ncm.node_type_to_count.values())
 
 
-
 def get_num_node_instances(
         outputs: Union[Array, DictOfNamedArrays],
         node_type: type[Array],
@@ -541,8 +542,11 @@ class OutlinedNodeCountMapper(CachedWalkMapper):
        functions of the DAG.
     """
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(
+            self,
+            _function_clones: Optional[
+                Dict[Hashable, OutlinedNodeCountMapper]] = None) -> None:
+        super().__init__(_function_clones=_function_clones)
         from collections import defaultdict
         self.node_type_to_count = defaultdict(int)
 
@@ -628,15 +632,26 @@ class NodeCollector(CachedWalkMapper):
        The collected nodes.
     """
 
-    def __init__(self, collect_func: Callable[Array, bool]) -> None:
-        super().__init__()
+    def __init__(
+            self,
+            collect_func: Callable[Array, bool],
+            _function_clones: Optional[
+                Dict[Hashable, NodeCollector]] = None) -> None:
+        super().__init__(_function_clones=_function_clones)
         self.collect_func = collect_func
         self.nodes = set()
 
-    @memoize_method
     def clone_for_callee(
             self: NodeCollector, function: FunctionDefinition) -> NodeCollector:
-        return type(self)(self.collect_func)
+        key = self.get_func_def_cache_key(function)
+        try:
+            return self._function_clones[key]
+        except KeyError:
+            result = type(self)(
+                self.collect_func,
+                _function_clones=self._function_clones)
+            self._function_clones[key] = result
+            return result
 
     def get_cache_key(self, expr: ArrayOrNames) -> int:
         return id(expr)

@@ -36,8 +36,8 @@ import attrs
 import pymbolic.primitives as prim
 import pytato.scalar_expr as scalar_expr
 
-from typing import (Tuple, FrozenSet, Collection, Mapping, Any, List, Dict,
-                    TYPE_CHECKING, Sequence, Callable, Set, Generator)
+from typing import (Tuple, FrozenSet, Collection, Hashable, Mapping, Any, List, Dict,
+                    Optional, TYPE_CHECKING, Sequence, Callable, Set, Generator)
 from pytato.transform import (ArrayOrNames, TransformMapperWithExtraArgs, CopyMapper,
                               CombineMapper, Mapper, CachedMapper, _SelfMapper,
                               CachedWalkMapper)
@@ -87,6 +87,10 @@ class PlaceholderSubstitutor(CopyMapper):
         super().__init__()
         self.substitutions = substitutions
 
+    def clone_for_callee(
+            self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
+        raise AssertionError("Control should not reach here.")
+
     def map_placeholder(self, expr: Placeholder) -> Array:
         # Can't call rec() to remove duplicates here, because the substituted-in
         # expression may potentially contain unrelated placeholders whose names
@@ -102,16 +106,23 @@ class Inliner(CopyMapper):
     """
     Primary mapper for :func:`inline_calls`.
     """
-    def __init__(self) -> None:
+    def __init__(
+            self,
+            _function_clones: Optional[Dict[Hashable, CachedMapper]] = None) -> None:
         # Must use err_on_collision=False because we're combining expressions
         # that were previously in two different call stack frames (and were thus
         # cached separately)
-        super().__init__(err_on_collision=False)
+        super().__init__(err_on_collision=False, _function_clones=_function_clones)
 
-    @memoize_method
     def clone_for_callee(
             self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
-        return type(self)()
+        key = self.get_func_def_cache_key(function)
+        try:
+            return self._function_clones[key]
+        except KeyError:
+            result = type(self)(_function_clones=self._function_clones)
+            self._function_clones[key] = result
+            return result
 
     def map_call(self, expr: Call) -> AbstractResultWithNamedArrays:
         if expr.tags_of_type(InlineCallTag):
@@ -282,28 +293,38 @@ class _NamedCallResultReplacerPostConcatenate(CopyMapper):
     """
     def __init__(self,
                  replacement_map: Mapping[
-                    Tuple[
-                        NamedCallResult,
-                        Tuple[Call, ...]],
-                    Array],
-                 current_stack: Tuple[Call, ...]) -> None:
+                     Tuple[
+                         NamedCallResult,
+                         Tuple[Call, ...]],
+                     Array],
+                 current_stack: Tuple[Call, ...],
+                 _call_clones: Optional[Dict[Hashable, CachedMapper]] = None,
+                 ) -> None:
         super().__init__()
         self.replacement_map = replacement_map
         self.current_stack = current_stack
 
-    @memoize_method
+        if _call_clones is None:
+            _call_clones = {}
+
+        self._call_clones: Dict[Hashable, CachedMapper] = _call_clones
+
     def clone_for_callee(
             self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
         raise AssertionError("Control should not reach here."
                              " Call clone_with_new_call_on_stack instead.")
 
-    @memoize_method
     def clone_with_new_call_on_stack(self: _SelfMapper, expr: Call) -> _SelfMapper:
-        # type-ignore-reason: Mapper class does not define these attributes.
-        return type(self)(  # type: ignore[call-arg]
-            self.replacement_map,  # type: ignore[attr-defined]
-            self.current_stack + (expr,),  # type: ignore[attr-defined]
-        )
+        key = self.get_cache_key(expr)
+        try:
+            return self._call_clones[key]
+        except KeyError:
+            result = type(self)(
+                self.replacement_map,
+                self.current_stack + (expr,),
+                self._call_clones)
+            self._call_clones[key] = result
+            return result
 
     def map_call(self, expr: Call) -> AbstractResultWithNamedArrays:
         new_mapper = self.clone_with_new_call_on_stack(expr)
@@ -902,11 +923,19 @@ def _get_concatenated_shape(arrays: Collection[Array], iaxis: int) -> ShapeType:
 
 
 class _ConcatabilityCollector(CachedWalkMapper):
-    def __init__(self, current_stack: Tuple[Call, ...]) -> None:
+    def __init__(
+            self,
+            current_stack: Tuple[Call, ...],
+            _call_clones: Optional[Dict[Hashable, CachedMapper]] = None) -> None:
         self.ary_to_concatenatability: Dict[ArrayOnStackT, Concatenatability] = {}
         self.current_stack = current_stack
         self.call_sites_on_hold: Set[Call] = set()
         super().__init__()
+
+        if _call_clones is None:
+            _call_clones = {}
+
+        self._call_clones: Dict[Hashable, CachedMapper] = _call_clones
 
     # type-ignore-reason: CachedWalkMaper takes variadic `*args, **kwargs`.
     def get_cache_key(self,  # type: ignore[override]
@@ -922,18 +951,21 @@ class _ConcatabilityCollector(CachedWalkMapper):
         assert key not in self.ary_to_concatenatability
         self.ary_to_concatenatability[key] = concatenatability
 
-    @memoize_method
     def clone_for_callee(
             self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
         raise AssertionError("Control should not reach here."
                              " Call clone_with_new_call_on_stack instead.")
 
-    @memoize_method
     def clone_with_new_call_on_stack(self: _SelfMapper, expr: Call) -> _SelfMapper:
-        # type-ignore-reason: Mapper class does not define these attributes.
-        return type(self)(  # type: ignore[call-arg]
-            self.current_stack + (expr,),  # type: ignore[attr-defined]
-        )
+        key = self.get_cache_key(expr)
+        try:
+            return self._call_clones[key]
+        except KeyError:
+            result = type(self)(
+                self.current_stack + (expr,),
+                self._call_clones)
+            self._call_clones[key] = result
+            return result
 
     def _map_input_arg_base(self,
                             expr: InputArgumentBase,
@@ -1137,19 +1169,35 @@ class _FunctionConcatenator(TransformMapperWithExtraArgs):
                  current_stack: Tuple[Call, ...],
                  input_concatenator: _InputConcatenator,
                  ary_to_concatenatability: Map[ArrayOnStackT, Concatenatability],
+                 _call_clones: Optional[Dict[Hashable, CachedMapper]] = None,
                  ) -> None:
         super().__init__()
         self.current_stack = current_stack
         self.input_concatenator = input_concatenator
         self.ary_to_concatenatability = ary_to_concatenatability
 
-    @memoize_method
-    def clone_with_new_call_on_stack(self, expr: Call) -> _FunctionConcatenator:
-        return _FunctionConcatenator(
-            self.current_stack + (expr,),
-            self.input_concatenator,
-            self.ary_to_concatenatability,
-        )
+        if _call_clones is None:
+            _call_clones = {}
+
+        self._call_clones: Dict[Hashable, CachedMapper] = _call_clones
+
+    def clone_for_callee(
+            self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
+        raise AssertionError("Control should not reach here."
+                             " Call clone_with_new_call_on_stack instead.")
+
+    def clone_with_new_call_on_stack(self: _SelfMapper, expr: Call) -> _SelfMapper:
+        key = self.get_cache_key(expr)
+        try:
+            return self._call_clones[key]
+        except KeyError:
+            result = type(self)(
+                self.current_stack + (expr,),
+                self.input_concatenator,
+                self.ary_to_concatenatability,
+                self._call_clones)
+            self._call_clones[key] = result
+            return result
 
     def _get_concatenatability(self, expr: Array) -> Concatenatability:
         return self.ary_to_concatenatability[(self.current_stack, expr)]

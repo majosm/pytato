@@ -23,7 +23,7 @@ THE SOFTWARE.
 """
 
 import dataclasses
-from typing import Union, Dict, Tuple, List, Any, Optional, Mapping
+from typing import Union, Dict, Hashable, Tuple, List, Any, Optional, Mapping
 from immutabledict import immutabledict
 
 from pytato.array import (Array, DictOfNamedArrays, DataWrapper, Placeholder,
@@ -105,10 +105,13 @@ class CodeGenPreprocessor(ToIndexLambdaMixin, CopyMapper):  # type: ignore[misc]
     ======================================  =====================================
     """
 
-    def __init__(self, target: Target,
-                 kernels_seen: Optional[Dict[str, lp.LoopKernel]] = None
-                 ) -> None:
-        super().__init__()
+    def __init__(
+            self,
+            target: Target,
+            kernels_seen: Optional[Dict[str, lp.LoopKernel]] = None,
+            _function_clones: Optional[
+                Dict[Hashable, CodeGenPreprocessor]] = None) -> None:
+        super().__init__(_function_clones=_function_clones)
         self.bound_arguments: Dict[str, DataInterface] = {}
         self.var_name_gen: UniqueNameGenerator = UniqueNameGenerator()
         self.target = target
@@ -234,9 +237,12 @@ def normalize_outputs(result: Union[Array, DictOfNamedArrays,
 
 @optimize_mapper(drop_args=True, drop_kwargs=True, inline_get_cache_key=True)
 class NamesValidityChecker(CachedWalkMapper):
-    def __init__(self) -> None:
+    def __init__(
+            self,
+            _function_clones: Optional[
+                Dict[Hashable, NamesValidityChecker]] = None) -> None:
         self.name_to_input: Dict[str, InputArgumentBase] = {}
-        super().__init__()
+        super().__init__(_function_clones=_function_clones)
 
     def get_cache_key(self, expr: ArrayOrNames) -> int:
         return id(expr)

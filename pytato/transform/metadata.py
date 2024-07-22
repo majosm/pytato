@@ -35,8 +35,8 @@ THE SOFTWARE.
 """
 
 
-from typing import (TYPE_CHECKING, Type, Set, Tuple, List, Dict, FrozenSet,
-                    Mapping, Iterable, Any, TypeVar, cast)
+from typing import (Hashable, TYPE_CHECKING, Type, Set, Tuple, List, Dict, FrozenSet,
+                    Mapping, Optional, Iterable, Any, TypeVar, cast)
 from bidict import bidict
 from pytato.scalar_expr import SCALAR_CLASSES
 from pytato.transform import ArrayOrNames, Mapper, CopyMapper
@@ -611,8 +611,9 @@ class AxisTagAttacher(CopyMapper):
     """
     def __init__(self,
                  axis_to_tags: Mapping[Tuple[Array, int], Iterable[Tag]],
-                 tag_corresponding_redn_descr: bool):
-        super().__init__()
+                 tag_corresponding_redn_descr: bool,
+                 _function_clones: Optional[Dict[Hashable, CopyMapper]] = None):
+        super().__init__(_function_clones=_function_clones)
         self.axis_to_tags: Mapping[Tuple[Array, int], Iterable[Tag]] = axis_to_tags
         self.tag_corresponding_redn_descr: bool = tag_corresponding_redn_descr
 

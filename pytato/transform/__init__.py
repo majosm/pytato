@@ -207,13 +207,23 @@ class CachedMapper(Mapper, Generic[CachedMapperT]):
     .. automethod:: clone_for_callee
     """
 
-    def __init__(self, err_on_collision: bool = True) -> None:
+    def __init__(self,
+            err_on_collision: bool = True,
+            _function_clones: Optional[Dict[Hashable, CachedMapper]] = None) -> None:
         super().__init__()
         self._err_on_collision = err_on_collision
         self._seen_exprs: Dict[Hashable, ArrayOrNames] = {}
         self._cache: Dict[Hashable, CachedMapperT] = {}
 
+        if _function_clones is None:
+            _function_clones = {}
+
+        self._function_clones: Dict[Hashable, CachedMapper] = _function_clones
+
     def get_cache_key(self, expr: ArrayOrNames) -> Hashable:
+        return expr
+
+    def get_func_def_cache_key(self, expr: FunctionDefinition) -> Hashable:
         return expr
 
     def rec(self, expr: ArrayOrNames) -> CachedMapperT:
@@ -236,14 +246,21 @@ class CachedMapper(Mapper, Generic[CachedMapperT]):
         def __call__(self, expr: ArrayOrNames) -> CachedMapperT:
             return self.rec(expr)
 
-    @memoize_method
     def clone_for_callee(
             self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
         """
         Called to clone *self* before starting traversal of a
         :class:`pytato.function.FunctionDefinition`.
         """
-        return type(self)(err_on_collision=self._err_on_collision)
+        key = self.get_func_def_cache_key(function)
+        try:
+            return self._function_clones[key]
+        except KeyError:
+            result = type(self)(
+                err_on_collision=self._err_on_collision,
+                _function_clones=self._function_clones)
+            self._function_clones[key] = result
+            return result
 
 # }}}
 
@@ -263,7 +280,9 @@ class TransformMapper(CachedMapper[ArrayOrNames]):
     def __init__(
             self,
             err_on_collision: bool = True,
-            err_on_duplication: Optional[bool] = None) -> None:
+            err_on_duplication: Optional[bool] = None,
+            _function_clones: Optional[Dict[Hashable, TransformMapper]] = None
+            ) -> None:
         """
         :arg err_on_collision: Raise an exception if two distinct input array
             instances have the same key.
@@ -272,7 +291,9 @@ class TransformMapper(CachedMapper[ArrayOrNames]):
             `err_on_collision=True`. Defaults to *True* if `err_on_collision` is
             enabled.
         """
-        super().__init__(err_on_collision=err_on_collision)
+        super().__init__(
+            err_on_collision=err_on_collision,
+            _function_clones=_function_clones)
         if err_on_duplication is None:
             err_on_duplication = err_on_collision
         if err_on_duplication and not err_on_collision:
@@ -319,16 +340,22 @@ class TransformMapper(CachedMapper[ArrayOrNames]):
 
         return result  # type: ignore[return-value]
 
-    @memoize_method
     def clone_for_callee(
             self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
         """
         Called to clone *self* before starting traversal of a
         :class:`pytato.function.FunctionDefinition`.
         """
-        return type(self)(
-            err_on_collision=self._err_on_collision,
-            err_on_duplication=self._err_on_duplication)
+        key = self.get_func_def_cache_key(function)
+        try:
+            return self._function_clones[key]
+        except KeyError:
+            result = type(self)(
+                err_on_collision=self._err_on_collision,
+                err_on_duplication=self._err_on_duplication,
+                _function_clones=self._function_clones)
+            self._function_clones[key] = result
+            return result
 
 # }}}
 
@@ -354,7 +381,10 @@ class TransformMapperWithExtraArgs(CachedMapper[ArrayOrNames]):
     def __init__(
             self,
             err_on_collision: bool = True,
-            err_on_duplication: Optional[bool] = None) -> None:
+            err_on_duplication: Optional[bool] = None,
+            _function_clones: Optional[
+                Dict[Hashable, TransformMapperWithExtraArgs]] = None
+            ) -> None:
         """
         :arg err_on_collision: Raise an exception if two distinct input array
         instances have the same key.
@@ -363,14 +393,28 @@ class TransformMapperWithExtraArgs(CachedMapper[ArrayOrNames]):
             `err_on_collision=True`. Defaults to *True* if `err_on_collision` is
             enabled.
         """
-        super().__init__(err_on_collision)
+        super().__init__(err_on_collision, _function_clones=_function_clones)
         # type-ignored as '._cache' attribute is not coherent with the base
         # class
-        self._cache: Dict[Tuple[ArrayOrNames,
-                                Tuple[Any, ...],
-                                Tuple[Tuple[str, Any], ...]
-                                ],
-                          ArrayOrNames] = {}  # type: ignore[assignment]
+        self._cache: Dict[
+            Union[
+                ArrayOrNames,
+                Tuple[
+                    ArrayOrNames,
+                    Tuple[Any, ...],
+                    Tuple[Tuple[str, Any], ...]]],
+            ArrayOrNames] = {}  # type: ignore[assignment]
+        # FIXME: Type annotation needs updating
+        # type-ignored as '._function_clones' attribute is not coherent with the base
+        # class
+        self._function_clones: Dict[
+            Union[
+                ArrayOrNames,
+                Tuple[
+                    ArrayOrNames,
+                    Tuple[Any, ...],
+                    Tuple[Tuple[str, Any], ...]]],
+            ArrayOrNames] = self._function_clones  # type: ignore[assignment]
         if err_on_duplication is None:
             err_on_duplication = err_on_collision
         if err_on_duplication and not err_on_collision:
@@ -388,6 +432,26 @@ class TransformMapperWithExtraArgs(CachedMapper[ArrayOrNames]):
                             ArrayOrNames,
                             Tuple[Any, ...],
                             Tuple[Tuple[str, Any], ...]]]:
+        extras = []
+        if args:
+            extras.append(args)
+        if kwargs:
+            extras.append(tuple(sorted(kwargs.items())))
+
+        if extras:
+            return (expr, *extras)
+        else:
+            return expr
+
+    def get_func_def_cache_key(self,
+                               expr: FunctionDefinition,
+                               *args: Any, **kwargs: Any
+                               ) -> Union[
+                                ArrayOrNames,
+                                Tuple[
+                                    ArrayOrNames,
+                                    Tuple[Any, ...],
+                                    Tuple[Tuple[str, Any], ...]]]:
         extras = []
         if args:
             extras.append(args)
@@ -439,16 +503,24 @@ class TransformMapperWithExtraArgs(CachedMapper[ArrayOrNames]):
 
         return result  # type: ignore[return-value]
 
-    @memoize_method
     def clone_for_callee(
-            self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
+            self: _SelfMapper,
+            function: FunctionDefinition,
+            *args, Any, **kwargs: Any) -> _SelfMapper:
         """
         Called to clone *self* before starting traversal of a
         :class:`pytato.function.FunctionDefinition`.
         """
-        return type(self)(
-            err_on_collision=self._err_on_collision,
-            err_on_duplication=self._err_on_duplication)
+        key = self.get_func_def_cache_key(function, *args, **kwargs)
+        try:
+            return self._function_clones[key]
+        except KeyError:
+            result = type(self)(
+                err_on_collision=self._err_on_collision,
+                err_on_duplication=self._err_on_duplication,
+                _function_clones=self._function_clones)
+            self._function_clones[key] = result
+            return result
 
 # }}}
 
@@ -1387,8 +1459,12 @@ class _PrecomputableSubexpressionReplacer(CopyMapper):
     Mapper to replace precomputable subexpressions found by
     :class:`_PrecomputableSubexpressionGatherer` with the evaluated versions.
     """
-    def __init__(self, replacement_map: Mapping[Array, Array]) -> None:
-        super().__init__()
+    def __init__(
+            self,
+            replacement_map: Mapping[Array, Array],
+            _function_clones: Optional[
+                Dict[Hashable, _PrecomputableSubexpressionReplacer]] = None) -> None:
+        super().__init__(_function_clones=_function_clones)
         self.replacement_map = replacement_map
 
     # FIXME: It's awkward to have to duplicate all of this from TransformMapper;
@@ -1437,15 +1513,20 @@ class _PrecomputableSubexpressionReplacer(CopyMapper):
 
         return result  # type: ignore[return-value]
 
-    @memoize_method
     def clone_for_callee(
             self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
         """
         Called to clone *self* before starting traversal of a
         :class:`pytato.function.FunctionDefinition`.
         """
-        # FIXME: Ignoring subexpressions inside function definitions for now
-        return type(self)({})
+        key = self.get_func_def_cache_key(function)
+        try:
+            return self._function_clones[key]
+        except KeyError:
+            # FIXME: Ignoring subexpressions inside function definitions for now
+            result = type(self)({}, _function_clones=self._function_clones)
+            self._function_clones[key] = result
+            return result
 
 
 def precompute_subexpressions(
@@ -1740,10 +1821,18 @@ class CachedWalkMapper(WalkMapper):
     one of its predecessors.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+            self,
+            _function_clones: Optional[
+                Dict[Hashable, CachedWalkMapper]] = None) -> None:
         super().__init__()
         self._visited_arrays_or_names: Set[Any] = set()
         self._visited_functions: Set[Any] = set()
+
+        if _function_clones is None:
+            _function_clones = {}
+
+        self._function_clones: Dict[Hashable, CachedWalkMapper] = _function_clones
 
     def get_cache_key(self, expr: ArrayOrNames, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError
@@ -1761,10 +1850,16 @@ class CachedWalkMapper(WalkMapper):
         super().rec(expr, *args, **kwargs)
         self._visited_arrays_or_names.add(cache_key)
 
-    @memoize_method
     def clone_for_callee(
-            self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
-        return type(self)()
+            self: _SelfMapper, function: FunctionDefinition,
+            *args: Any, **kwargs: Any) -> _SelfMapper:
+        key = self.get_func_def_cache_key(function, *args, **kwargs)
+        try:
+            return self._function_clones[key]
+        except KeyError:
+            result = type(self)(_function_clones=self._function_clones)
+            self._function_clones[key] = result
+            return result
 
     def map_function_definition(self, expr: FunctionDefinition,
                                 *args: Any, **kwargs: Any) -> None:
@@ -1774,7 +1869,7 @@ class CachedWalkMapper(WalkMapper):
                 or cache_key in self._visited_functions):
             return
 
-        new_mapper = self.clone_for_callee(expr)
+        new_mapper = self.clone_for_callee(expr, *args, **kwargs)
         for subexpr in expr.returns.values():
             new_mapper(subexpr, *args, **kwargs)
 
@@ -1799,8 +1894,11 @@ class TopoSortMapper(CachedWalkMapper):
         :class:`~pytato.function.FunctionDefinition`.
     """
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(
+            self,
+            _function_clones: Optional[
+                Dict[Hashable, TopoSortMapper]] = None) -> None:
+        super().__init__(_function_clones=_function_clones)
         self.topological_order: List[Array] = []
 
     def get_cache_key(self, expr: ArrayOrNames) -> int:
@@ -1824,16 +1922,27 @@ class CachedMapAndCopyMapper(CopyMapper):
     traversals are memoized i.e. each node is mapped via *map_fn* exactly once.
     """
 
-    def __init__(self, map_fn: Callable[[ArrayOrNames], ArrayOrNames]) -> None:
-        super().__init__()
+    def __init__(
+            self,
+            map_fn: Callable[[ArrayOrNames], ArrayOrNames],
+            _function_clones: Optional[
+                Dict[Hashable, CachedMapAndCopyMapper]] = None) -> None:
+        super().__init__(_function_clones=_function_clones)
         self.map_fn: Callable[[ArrayOrNames], ArrayOrNames] = map_fn
 
-    @memoize_method
     def clone_for_callee(
             self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
-        # type-ignore-reason: self.__init__ has a different function signature
-        # than Mapper.__init__ and does not have map_fn
-        return type(self)(self.map_fn)  # type: ignore[call-arg,attr-defined]
+        key = self.get_func_def_cache_key(function)
+        try:
+            return self._function_clones[key]
+        except KeyError:
+            # type-ignore-reason: self.__init__ has a different function signature
+            # than Mapper.__init__ and does not have map_fn
+            result = type(self)(
+                self.map_fn,  # type: ignore[call-arg,attr-defined]
+                _function_clones=self._function_clones)
+            self._function_clones[key] = result
+            return result
 
     # FIXME: It's awkward to have to duplicate all of this from TransformMapper;
     # figure out a better way

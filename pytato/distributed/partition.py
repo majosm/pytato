@@ -282,8 +282,10 @@ class _DistributedInputReplacer(CopyMapper):
                  recvd_ary_to_name: Mapping[Array, str],
                  sptpo_ary_to_name: Mapping[Array, str],
                  name_to_output: Mapping[str, Array],
+                 _function_clones: Optional[
+                     Dict[Hashable, _DistributedInputReplacer]] = None,
                  ) -> None:
-        super().__init__()
+        super().__init__(_function_clones=_function_clones)
 
         self.recvd_ary_to_name = recvd_ary_to_name
         self.sptpo_ary_to_name = sptpo_ary_to_name
@@ -293,12 +295,17 @@ class _DistributedInputReplacer(CopyMapper):
         self.user_input_names: Set[str] = set()
         self.partition_input_name_to_placeholder: Dict[str, Placeholder] = {}
 
-    @memoize_method
     def clone_for_callee(
             self, function: FunctionDefinition) -> _DistributedInputReplacer:
-        # Function definitions aren't allowed to contain receives,
-        # stored arrays promoted to part outputs, or part outputs
-        return type(self)({}, {}, {})
+        key = self.get_func_def_cache_key(function)
+        try:
+            return self._function_clones[key]
+        except KeyError:
+            # Function definitions aren't allowed to contain receives,
+            # stored arrays promoted to part outputs, or part outputs
+            result = type(self)({}, {}, {}, _function_clones=self._function_clones)
+            self._function_clones[key] = result
+            return result
 
     def map_placeholder(self, expr: Placeholder) -> Placeholder:
         self.user_input_names.add(expr.name)
