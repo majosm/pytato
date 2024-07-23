@@ -831,7 +831,7 @@ class _InputConcatabilityGetter(CachedMapper[ArrayOrNames]):
     def map_named_call_result(self, expr: NamedCallResult
                               ) -> _InputConcatabilityGetterAcc:
         assert isinstance(expr._container, Call)
-        valid_concatenatabilities = _get_valid_concatenatability_constraints_basic(
+        valid_concatenatabilities = _get_valid_concatenatability_constraints_simple(
             expr._container.function)
 
         expr_concat_possibilities = {
