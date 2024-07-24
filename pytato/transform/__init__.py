@@ -260,6 +260,7 @@ class CachedMapper(Mapper, Generic[CachedMapperT, CachedMapperFunctionT]):
 
         return result  # type: ignore[return-value]
 
+    # FIXME: Add collision check
     def rec_function_definition(
             self, expr: FunctionDefinition) -> CachedMapperFunctionT:
         key = self.get_function_definition_cache_key(expr)
@@ -361,6 +362,8 @@ class TransformMapper(CachedMapper[ArrayOrNames, FunctionDefinition]):
         self._cache[key] = result
 
         return result  # type: ignore[return-value]
+
+    # FIXME: Override rec_function_definition to add duplication check
 
     def clone_for_callee(
             self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
@@ -519,6 +522,7 @@ class TransformMapperWithExtraArgs(CachedMapper[ArrayOrNames, FunctionDefinition
 
         return result  # type: ignore[return-value]
 
+    # FIXME: Add collision/duplication checks
     def rec_function_definition(
             self,
             expr: FunctionDefinition,
