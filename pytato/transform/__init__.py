@@ -236,7 +236,6 @@ class CachedMapper(Mapper, Generic[CachedMapperT]):
         def __call__(self, expr: ArrayOrNames) -> CachedMapperT:
             return self.rec(expr)
 
-    @memoize_method
     def clone_for_callee(
             self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
         """

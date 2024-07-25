@@ -108,7 +108,6 @@ class Inliner(CopyMapper):
         # cached separately)
         super().__init__(err_on_collision=False)
 
-    @memoize_method
     def clone_for_callee(
             self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
         return type(self)()
