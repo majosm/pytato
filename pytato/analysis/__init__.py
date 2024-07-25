@@ -25,7 +25,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from typing import (Mapping, Dict, Union, Set, Tuple, Any, FrozenSet,
+from typing import (Mapping, Callable, Dict, Union, Set, Tuple, Any, FrozenSet,
                     TYPE_CHECKING)
 from pytato.array import (Array, IndexLambda, Stack, Concatenate, Einsum,
                           DictOfNamedArrays, NamedArray,
@@ -491,7 +491,6 @@ def get_num_nodes(
     ncm(outputs)
 
     return sum(ncm.node_type_to_count.values())
-
 
 
 def get_num_node_instances(
