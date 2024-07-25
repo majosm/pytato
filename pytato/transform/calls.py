@@ -118,7 +118,7 @@ class Inliner(CopyMapper):
 
     def clone_for_callee(
             self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
-        return type(self)()
+        return type(self)(_function_cache=self._function_cache)
 
     def map_call(self, expr: Call) -> AbstractResultWithNamedArrays:
         if expr.tags_of_type(InlineCallTag):

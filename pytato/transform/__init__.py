@@ -280,7 +280,9 @@ class CachedMapper(Mapper, Generic[CachedMapperT, CachedMapperFunctionT]):
         Called to clone *self* before starting traversal of a
         :class:`pytato.function.FunctionDefinition`.
         """
-        return type(self)(err_on_collision=self._err_on_collision)
+        return type(self)(
+            err_on_collision=self._err_on_collision,
+            _function_cache=self._function_cache)
 
 # }}}
 
@@ -368,7 +370,8 @@ class TransformMapper(CachedMapper[ArrayOrNames, FunctionDefinition]):
         """
         return type(self)(
             err_on_collision=self._err_on_collision,
-            err_on_duplication=self._err_on_duplication)
+            err_on_duplication=self._err_on_duplication,
+            _function_cache=self._function_cache)
 
 # }}}
 
@@ -536,7 +539,8 @@ class TransformMapperWithExtraArgs(CachedMapper[ArrayOrNames, FunctionDefinition
         """
         return type(self)(
             err_on_collision=self._err_on_collision,
-            err_on_duplication=self._err_on_duplication)
+            err_on_duplication=self._err_on_duplication,
+            _function_cache=self._function_cache)
 
 # }}}
 
