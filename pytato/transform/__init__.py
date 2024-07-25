@@ -1469,13 +1469,12 @@ class _PrecomputableSubexpressionGatherer(CombineMapper[FrozenSet[Array]]):
         from functools import reduce
         return reduce(lambda a, b: a | b, args, frozenset())
 
-    @memoize_method
     def map_function_definition(self, expr: FunctionDefinition) -> CombineT:
         # FIXME: Ignoring subexpressions inside function definitions for now
         return frozenset()
 
     def map_call(self, expr: Call) -> CombineT:
-        rec_fn = self.map_function_definition(expr.function)
+        rec_fn = self.rec_function_definition(expr.function)
         assert not rec_fn
         rec_bindings = immutabledict({
             name: self.rec(bnd) if isinstance(bnd, Array) else frozenset({bnd})
@@ -1493,8 +1492,12 @@ class _PrecomputableSubexpressionReplacer(CopyMapper):
     Mapper to replace precomputable subexpressions found by
     :class:`_PrecomputableSubexpressionGatherer` with the evaluated versions.
     """
-    def __init__(self, replacement_map: Mapping[Array, Array]) -> None:
-        super().__init__()
+    def __init__(
+            self,
+            replacement_map: Mapping[Array, Array],
+            _function_cache: Optional[Dict[Hashable, FunctionDefinition]] = None
+            ) -> None:
+        super().__init__(_function_cache=_function_cache)
         self.replacement_map = replacement_map
 
     # FIXME: It's awkward to have to duplicate all of this from TransformMapper;
@@ -1550,7 +1553,7 @@ class _PrecomputableSubexpressionReplacer(CopyMapper):
         :class:`pytato.function.FunctionDefinition`.
         """
         # FIXME: Ignoring subexpressions inside function definitions for now
-        return type(self)({})
+        return type(self)({}, _function_cache=self._function_cache)
 
 
 def precompute_subexpressions(
