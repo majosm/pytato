@@ -25,8 +25,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from typing import (Mapping, Callable, Dict, Union, Set, Tuple, Any, FrozenSet,
-                    TYPE_CHECKING)
+from typing import (Mapping, Callable, Dict, Optional, Union, Set, Tuple, Any,
+                    FrozenSet, TYPE_CHECKING)
 from pytato.array import (Array, IndexLambda, Stack, Concatenate, Einsum,
                           DictOfNamedArrays, NamedArray,
                           IndexBase, IndexRemappingBase, InputArgumentBase,
@@ -400,14 +400,15 @@ class _NodeCountMapperBase(CachedWalkMapper):
        A mapping from node type to the number of nodes of that type in the DAG.
     """
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(
+            self,
+            _visited_functions: Optional[Set[Any]] = None) -> None:
+        super().__init__(_visited_functions=_visited_functions)
         from collections import defaultdict
         self.node_type_to_count = defaultdict(int)
 
     def map_function_definition(self, expr: FunctionDefinition) -> None:
-        cache_key = self.get_func_def_cache_key(expr)
-        if not self.visit(expr) or cache_key in self._visited_functions:
+        if not self.visit(expr):
             return
 
         new_mapper = self.clone_for_callee(expr)
@@ -416,8 +417,6 @@ class _NodeCountMapperBase(CachedWalkMapper):
 
         for node_type, count in new_mapper.node_type_to_count.items():
             self.node_type_to_count[node_type] += count
-
-        self._visited_functions.add(cache_key)
 
         self.post_visit(expr)
 
@@ -437,7 +436,7 @@ class NodeCountMapper(_NodeCountMapperBase):
     def get_cache_key(self, expr: ArrayOrNames) -> int:
         return id(expr)
 
-    def get_func_def_cache_key(self, expr: FunctionDefinition) -> int:
+    def get_function_definition_cache_key(self, expr: FunctionDefinition) -> int:
         return id(expr)
 
 
@@ -453,7 +452,8 @@ class MergedNodeCountMapper(_NodeCountMapperBase):
     def get_cache_key(self, expr: ArrayOrNames) -> ArrayOrNames:
         return expr
 
-    def get_func_def_cache_key(self, expr: FunctionDefinition) -> FunctionDefinition:
+    def get_function_definition_cache_key(
+            self, expr: FunctionDefinition) -> FunctionDefinition:
         return expr
 
 
@@ -539,20 +539,22 @@ class OutlinedNodeCountMapper(CachedWalkMapper):
        functions of the DAG.
     """
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(
+            self,
+            _visited_functions: Optional[Set[Any]] = None
+            ) -> None:
+        super().__init__(_visited_functions=_visited_functions)
         from collections import defaultdict
         self.node_type_to_count = defaultdict(int)
 
     def get_cache_key(self, expr: ArrayOrNames) -> int:
         return id(expr)
 
-    def get_func_def_cache_key(self, expr: FunctionDefinition) -> int:
+    def get_function_definition_cache_key(self, expr: FunctionDefinition) -> int:
         return id(expr)
 
     def map_function_definition(self, expr: FunctionDefinition) -> None:
-        cache_key = self.get_func_def_cache_key(expr)
-        if not self.visit(expr) or cache_key in self._visited_functions:
+        if not self.visit(expr):
             return
 
         new_mapper = self.clone_for_callee(expr)
@@ -561,8 +563,6 @@ class OutlinedNodeCountMapper(CachedWalkMapper):
 
         for node_type, count in new_mapper.node_type_to_count.items():
             self.node_type_to_count[node_type] += count
-
-        self._visited_functions.add(cache_key)
 
         self.post_visit(expr)
 
@@ -577,7 +577,7 @@ class OutlinedNodeCountMapper(CachedWalkMapper):
         for node_type, count in ncm.node_type_to_count.items():
             self.node_type_to_count[node_type] += count
 
-        self.map_function_definition(expr.function)
+        self.rec_function_definition(expr.function)
         for bnd in expr.bindings.values():
             if isinstance(bnd, Array):
                 self.rec(bnd)
@@ -626,25 +626,29 @@ class NodeCollector(CachedWalkMapper):
        The collected nodes.
     """
 
-    def __init__(self, collect_func: Callable[Array, bool]) -> None:
-        super().__init__()
+    def __init__(
+            self,
+            collect_func: Callable[Array, bool],
+            _visited_functions: Optional[Set[Any]] = None) -> None:
+        super().__init__(_visited_functions=_visited_functions)
         self.collect_func = collect_func
         self.nodes = set()
 
     def clone_for_callee(
             self: NodeCollector, function: FunctionDefinition) -> NodeCollector:
-        return type(self)(self.collect_func)
+        return type(self)(
+            self.collect_func,
+            _visited_functions=self._visited_functions)
 
     def get_cache_key(self, expr: ArrayOrNames) -> int:
         return id(expr)
         # return expr
 
-    def get_func_def_cache_key(self, expr: FunctionDefinition) -> int:
+    def get_function_definition_cache_key(self, expr: FunctionDefinition) -> int:
         return id(expr)
 
     def map_function_definition(self, expr: FunctionDefinition) -> None:
-        cache_key = self.get_func_def_cache_key(expr)
-        if not self.visit(expr) or cache_key in self._visited_functions:
+        if not self.visit(expr):
             return
 
         new_mapper = self.clone_for_callee(expr)
@@ -653,8 +657,6 @@ class NodeCollector(CachedWalkMapper):
 
         # FIXME: Should probably distinguish nodes by stack?
         self.nodes |= new_mapper.nodes
-
-        self._visited_functions.add(cache_key)
 
         self.post_visit(expr)
 
