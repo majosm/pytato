@@ -319,7 +319,6 @@ class TransformMapper(CachedMapper[ArrayOrNames]):
 
         return result  # type: ignore[return-value]
 
-    @memoize_method
     def clone_for_callee(
             self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
         """
@@ -439,7 +438,6 @@ class TransformMapperWithExtraArgs(CachedMapper[ArrayOrNames]):
 
         return result  # type: ignore[return-value]
 
-    @memoize_method
     def clone_for_callee(
             self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
         """
