@@ -290,13 +290,11 @@ class _NamedCallResultReplacerPostConcatenate(CopyMapper):
         self.replacement_map = replacement_map
         self.current_stack = current_stack
 
-    @memoize_method
     def clone_for_callee(
             self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
         raise AssertionError("Control should not reach here."
                              " Call clone_with_new_call_on_stack instead.")
 
-    @memoize_method
     def clone_with_new_call_on_stack(self: _SelfMapper, expr: Call) -> _SelfMapper:
         # type-ignore-reason: Mapper class does not define these attributes.
         return type(self)(  # type: ignore[call-arg]
@@ -921,13 +919,11 @@ class _ConcatabilityCollector(CachedWalkMapper):
         assert key not in self.ary_to_concatenatability
         self.ary_to_concatenatability[key] = concatenatability
 
-    @memoize_method
     def clone_for_callee(
             self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
         raise AssertionError("Control should not reach here."
                              " Call clone_with_new_call_on_stack instead.")
 
-    @memoize_method
     def clone_with_new_call_on_stack(self: _SelfMapper, expr: Call) -> _SelfMapper:
         # type-ignore-reason: Mapper class does not define these attributes.
         return type(self)(  # type: ignore[call-arg]
@@ -1142,7 +1138,6 @@ class _FunctionConcatenator(TransformMapperWithExtraArgs):
         self.input_concatenator = input_concatenator
         self.ary_to_concatenatability = ary_to_concatenatability
 
-    @memoize_method
     def clone_with_new_call_on_stack(self, expr: Call) -> _FunctionConcatenator:
         return _FunctionConcatenator(
             self.current_stack + (expr,),
