@@ -35,7 +35,9 @@ THE SOFTWARE.
 """
 
 
-from typing import Any, List, FrozenSet, Dict, Set, Optional, Sequence, TYPE_CHECKING
+from typing import (
+    Any, List, FrozenSet, Dict, Set, Optional, Sequence, TYPE_CHECKING
+)
 
 import attrs
 import numpy as np
@@ -134,8 +136,11 @@ class MissingRecvError(DistributedPartitionVerificationError):
 
 @optimize_mapper(drop_args=True, drop_kwargs=True, inline_get_cache_key=True)
 class _SeenNodesWalkMapper(CachedWalkMapper):
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(
+            self,
+            _visited_functions: Optional[Set[Any]] = None
+            ) -> None:
+        super().__init__(_visited_functions=_visited_functions)
         self.seen_nodes: Set[ArrayOrNames] = set()
 
     def get_cache_key(self, expr: ArrayOrNames) -> int:

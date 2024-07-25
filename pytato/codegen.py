@@ -23,14 +23,14 @@ THE SOFTWARE.
 """
 
 import dataclasses
-from typing import Union, Dict, Tuple, List, Any, Optional, Mapping
+from typing import Union, Dict, Hashable, Tuple, List, Any, Optional, Mapping, Set
 from immutabledict import immutabledict
 
 from pytato.array import (Array, DictOfNamedArrays, DataWrapper, Placeholder,
                           DataInterface, SizeParam, InputArgumentBase,
                           make_dict_of_named_arrays)
 
-from pytato.function import NamedCallResult
+from pytato.function import FunctionDefinition, NamedCallResult
 from pytato.transform.lower_to_index_lambda import ToIndexLambdaMixin
 
 from pytato.scalar_expr import IntegralScalarExpression
@@ -105,10 +105,13 @@ class CodeGenPreprocessor(ToIndexLambdaMixin, CopyMapper):  # type: ignore[misc]
     ======================================  =====================================
     """
 
-    def __init__(self, target: Target,
-                 kernels_seen: Optional[Dict[str, lp.LoopKernel]] = None
-                 ) -> None:
-        super().__init__()
+    def __init__(
+            self,
+            target: Target,
+            kernels_seen: Optional[Dict[str, lp.LoopKernel]] = None,
+            _function_cache: Optional[
+                Dict[Hashable, FunctionDefinition]] = None) -> None:
+        super().__init__(_function_cache=_function_cache)
         self.bound_arguments: Dict[str, DataInterface] = {}
         self.var_name_gen: UniqueNameGenerator = UniqueNameGenerator()
         self.target = target
@@ -234,9 +237,11 @@ def normalize_outputs(result: Union[Array, DictOfNamedArrays,
 
 @optimize_mapper(drop_args=True, drop_kwargs=True, inline_get_cache_key=True)
 class NamesValidityChecker(CachedWalkMapper):
-    def __init__(self) -> None:
+    def __init__(
+            self,
+            _visited_functions: Optional[Set[Any]] = None) -> None:
         self.name_to_input: Dict[str, InputArgumentBase] = {}
-        super().__init__()
+        super().__init__(_visited_functions=_visited_functions)
 
     def get_cache_key(self, expr: ArrayOrNames) -> int:
         return id(expr)

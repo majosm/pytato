@@ -38,6 +38,7 @@ from pytato.array import (Stack, Concatenate, IndexLambda, DataWrapper,
                           Reshape, Array, DictOfNamedArrays, IndexBase,
                           DataInterface, NormalizedSlice, ShapeComponent,
                           IndexExpr, ArrayOrScalar, NamedArray)
+from pytato.function import FunctionDefinition
 from immutabledict import immutabledict
 from pytato.scalar_expr import SCALAR_CLASSES
 from pytato.utils import are_shape_components_equal
@@ -164,7 +165,7 @@ PYTATO_REDUCTION_TO_NP_REDUCTION: Mapping[Type[ReductionOperation], str] = {
 }
 
 
-class NumpyCodegenMapper(CachedMapper[str]):
+class NumpyCodegenMapper(CachedMapper[str, FunctionDefinition]):
     """
     .. note::
 

@@ -35,8 +35,8 @@ THE SOFTWARE.
 """
 
 
-from typing import (TYPE_CHECKING, Type, Set, Tuple, List, Dict, FrozenSet,
-                    Mapping, Iterable, Any, TypeVar, cast)
+from typing import (Hashable, TYPE_CHECKING, Type, Set, Tuple, List, Dict, FrozenSet,
+                    Mapping, Optional, Iterable, Any, TypeVar, cast)
 from bidict import bidict
 from pytato.scalar_expr import SCALAR_CLASSES
 from pytato.transform import ArrayOrNames, Mapper, CopyMapper
@@ -48,7 +48,7 @@ from pytato.array import (InputArgumentBase, Stack, Concatenate, IndexLambda,
                           DictOfNamedArrays, NamedArray,
                           AbstractResultWithNamedArrays, ArrayOrScalar,
                           EinsumReductionAxis)
-from pytato.function import NamedCallResult
+from pytato.function import FunctionDefinition, NamedCallResult
 from pytato.tags import UseInputAxis
 from pytato.distributed.nodes import DistributedRecv, DistributedSendRefHolder
 from pytato.utils import are_shape_components_equal, are_shapes_equal
@@ -611,8 +611,10 @@ class AxisTagAttacher(CopyMapper):
     """
     def __init__(self,
                  axis_to_tags: Mapping[Tuple[Array, int], Iterable[Tag]],
-                 tag_corresponding_redn_descr: bool):
-        super().__init__()
+                 tag_corresponding_redn_descr: bool,
+                 _function_cache: Optional[
+                     Dict[Hashable, FunctionDefinition]] = None):
+        super().__init__(_function_cache=_function_cache)
         self.axis_to_tags: Mapping[Tuple[Array, int], Iterable[Tag]] = axis_to_tags
         self.tag_corresponding_redn_descr: bool = tag_corresponding_redn_descr
 

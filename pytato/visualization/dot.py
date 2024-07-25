@@ -162,7 +162,7 @@ def stringify_shape(shape: ShapeType) -> str:
     return "(" + ", ".join(components) + ")"
 
 
-class ArrayToDotNodeInfoMapper(CachedMapper[ArrayOrNames]):
+class ArrayToDotNodeInfoMapper(CachedMapper[None, None]):
     def __init__(self) -> None:
         super().__init__()
         self.node_to_dot: Dict[ArrayOrNames, _DotNodeInfo] = {}

@@ -12,6 +12,7 @@ from pytato.array import (Array, DictOfNamedArrays, Einsum, Stack,
                           AdvancedIndexInContiguousAxes,
                           AdvancedIndexInNoncontiguousAxes,
                           IndexRemappingBase)
+from pytato.function import FunctionDefinition
 
 
 # {{{ Graph node colors
@@ -84,7 +85,7 @@ def _get_dot_node_from_predecessors(node_id: str,
         return NoShowNode(), frozenset()
 
 
-class FancyDotWriter(CachedMapper[_FancyDotWriterNode]):
+class FancyDotWriter(CachedMapper[_FancyDotWriterNode, FunctionDefinition]):
     def __init__(self) -> None:
         super().__init__()
         self.vng = UniqueNameGenerator()

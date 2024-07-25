@@ -84,8 +84,13 @@ class PlaceholderSubstitutor(CopyMapper):
     """
 
     def __init__(self, substitutions: Mapping[str, Array]) -> None:
+        # Ignoring function cache, not needed
         super().__init__()
         self.substitutions = substitutions
+
+    def clone_for_callee(
+            self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
+        raise AssertionError("Control should not reach here.")
 
     def map_placeholder(self, expr: Placeholder) -> Array:
         # Can't call rec() to remove duplicates here, because the substituted-in
@@ -102,11 +107,14 @@ class Inliner(CopyMapper):
     """
     Primary mapper for :func:`inline_calls`.
     """
-    def __init__(self) -> None:
+    def __init__(
+            self,
+            _function_cache: Optional[Dict[Hashable, FunctionDefinition]] = None
+            ) -> None:
         # Must use err_on_collision=False because we're combining expressions
         # that were previously in two different call stack frames (and were thus
         # cached separately)
-        super().__init__(err_on_collision=False)
+        super().__init__(err_on_collision=False, _function_cache=_function_cache)
 
     def clone_for_callee(
             self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
