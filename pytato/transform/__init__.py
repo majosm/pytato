@@ -1434,7 +1434,6 @@ class _PrecomputableSubexpressionReplacer(CopyMapper):
 
         return result  # type: ignore[return-value]
 
-    @memoize_method
     def clone_for_callee(
             self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
         """
