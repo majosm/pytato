@@ -219,6 +219,15 @@ class FunctionDefinition(Taggable):
         else:
             raise NotImplementedError(self.return_type)
 
+    def __eq__(self, other: Any) -> bool:
+        if self is other:
+            return True
+        if not isinstance(other, FunctionDefinition):
+            return False
+
+        from pytato.equality import EqualityComparer
+        return EqualityComparer().map_function_definition(self, other)
+
 
 @attrs.frozen(eq=False, repr=False, hash=True, cache_hash=True)
 class NamedCallResult(NamedArray):
