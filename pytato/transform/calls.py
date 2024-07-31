@@ -69,7 +69,8 @@ class PlaceholderSubstitutor(CopyMapper):
         # collide with the ones being replaced
         return self.substitutions[expr.name]
 
-    def map_call(self, expr: Call) -> Call:
+    def map_function_definition(
+            self, expr: FunctionDefinition) -> FunctionDefinition:
         # Only operates within the current stack frame
         return expr
 
