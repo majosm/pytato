@@ -29,7 +29,6 @@ THE SOFTWARE.
 from typing import TYPE_CHECKING, Any, Mapping
 
 from pymbolic.mapper.optimize import optimize_mapper
-from pytools import memoize_method
 
 from pytato.array import (
     Array,
@@ -51,6 +50,9 @@ from pytato.transform import ArrayOrNames, CachedWalkMapper, Mapper
 
 if TYPE_CHECKING:
     from pytato.distributed.nodes import DistributedRecv, DistributedSendRefHolder
+
+
+NodeT = Array | FunctionDefinition
 
 __doc__ = """
 .. currentmodule:: pytato.analysis
@@ -413,7 +415,7 @@ class NodeCountMapper(CachedWalkMapper):
     def __init__(self, count_duplicates: bool = False) -> None:
         from collections import defaultdict
         super().__init__()
-        self.expr_type_counts: dict[type[Any], int] = defaultdict(int)
+        self.expr_type_counts: dict[type[NodeT], int] = defaultdict(int)
         self.count_duplicates = count_duplicates
 
     def get_cache_key(self, expr: ArrayOrNames) -> int | ArrayOrNames:
@@ -421,14 +423,14 @@ class NodeCountMapper(CachedWalkMapper):
         return id(expr) if self.count_duplicates else expr
 
     def post_visit(self, expr: Any) -> None:
-        if not isinstance(expr, DictOfNamedArrays):
+        if isinstance(expr, NodeT):
             self.expr_type_counts[type(expr)] += 1
 
 
 def get_node_type_counts(
         outputs: Array | DictOfNamedArrays,
         count_duplicates: bool = False
-        ) -> dict[type[Any], int]:
+        ) -> dict[type[NodeT], int]:
     """
     Returns a dictionary mapping node types to node count for that type
     in DAG *outputs*.
@@ -488,19 +490,19 @@ class NodeMultiplicityMapper(CachedWalkMapper):
     def __init__(self) -> None:
         from collections import defaultdict
         super().__init__()
-        self.expr_multiplicity_counts: dict[Array, int] = defaultdict(int)
+        self.expr_multiplicity_counts: dict[NodeT, int] = defaultdict(int)
 
     def get_cache_key(self, expr: ArrayOrNames) -> int:
         # Returns each node, including nodes that are duplicates
         return id(expr)
 
     def post_visit(self, expr: Any) -> None:
-        if not isinstance(expr, DictOfNamedArrays):
+        if isinstance(expr, NodeT):
             self.expr_multiplicity_counts[expr] += 1
 
 
 def get_node_multiplicities(
-        outputs: Array | DictOfNamedArrays) -> dict[Array, int]:
+        outputs: Array | DictOfNamedArrays) -> dict[NodeT, int]:
     """
     Returns the multiplicity per `expr`.
     """
