@@ -806,6 +806,8 @@ def test_rec_get_user_nodes_linear_complexity():
                 assert expr.name == "x"
 
     expr, inp = construct_intestine_graph()
+    expr = pt.transform.CopyMapper(err_on_collision=False)(expr)
+
     result = pt.transform.rec_get_user_nodes(expr, inp)
     SubexprRecorder()(expr)
 
@@ -1029,7 +1031,7 @@ def test_created_at():
 
         old_tag = tag
 
-        res1_new = pt.transform.map_and_copy(res1, lambda x: x)
+        res1_new = pt.transform.CopyMapper(err_on_collision=False)(res1)
 
         created_tag = frozenset({tag
                              for tag in res1_new.non_equality_tags
