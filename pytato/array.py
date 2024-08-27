@@ -433,8 +433,11 @@ class Axis(Taggable):
     tags: frozenset[Tag]
 
     def _with_new_tags(self, tags: frozenset[Tag]) -> Axis:
-        from attrs import evolve as replace
-        return replace(self, tags=tags)
+        if tags != self.tags:
+            from attrs import evolve as replace
+            return replace(self, tags=tags)
+        else:
+            return self
 
 
 @attrs.frozen
@@ -446,8 +449,11 @@ class ReductionDescriptor(Taggable):
     tags: frozenset[Tag]
 
     def _with_new_tags(self, tags: frozenset[Tag]) -> ReductionDescriptor:
-        from attrs import evolve as replace
-        return replace(self, tags=tags)
+        if tags != self.tags:
+            from attrs import evolve as replace
+            return replace(self, tags=tags)
+        else:
+            return self
 
 
 @attrs.frozen(eq=False, repr=False, hash=True, cache_hash=True)
@@ -822,7 +828,10 @@ class _SuppliedAxesAndTagsMixin(Taggable):
                                                     default=frozenset())
 
     def _with_new_tags(self: Self, tags: frozenset[Tag]) -> Self:
-        return attrs.evolve(self, tags=tags)
+        if tags != self.tags:
+            return attrs.evolve(self, tags=tags)
+        else:
+            return self
 
 
 @attrs.frozen(eq=False, slots=False, repr=False)
