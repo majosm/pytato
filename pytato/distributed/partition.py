@@ -346,7 +346,7 @@ class _DistributedInputReplacer(CopyMapper):
     def rec(self, expr: ArrayOrNames) -> ArrayOrNames:  # type: ignore[override]
         key = self._cache.get_key(expr)
         try:
-            return self._cache.retrieve(expr, key=key)
+            return self._cache_retrieve(expr, key=key)
         except KeyError:
             pass
 
