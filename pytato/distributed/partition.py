@@ -74,6 +74,7 @@ from typing import (
     Iterator,
     Mapping,
     Sequence,
+    TypeAlias,
     TypeVar,
     cast,
 )
@@ -287,12 +288,13 @@ class _DistributedInputReplacer(CopyMapper):
     instances for their assigned names. Also gathers names for
     user-supplied inputs needed by the part
     """
+    _FunctionCacheT: TypeAlias = CopyMapper._FunctionCacheT
 
     def __init__(self,
                  recvd_ary_to_name: Mapping[Array, str],
                  sptpo_ary_to_name: Mapping[Array, str],
                  name_to_output: Mapping[str, Array],
-                 _function_cache: dict[Hashable, FunctionDefinition] | None = None,
+                 _function_cache: _FunctionCacheT | None = None,
                  ) -> None:
         super().__init__(_function_cache=_function_cache)
 
@@ -342,9 +344,9 @@ class _DistributedInputReplacer(CopyMapper):
 
     # type ignore because no args, kwargs
     def rec(self, expr: ArrayOrNames) -> ArrayOrNames:  # type: ignore[override]
-        key = self.get_cache_key(expr)
+        key = self._cache.get_key(expr)
         try:
-            return self._cache[key]
+            return self._cache.retrieve(expr, key=key)
         except KeyError:
             pass
 

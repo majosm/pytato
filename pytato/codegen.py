@@ -24,7 +24,7 @@ THE SOFTWARE.
 """
 
 import dataclasses
-from typing import Any, Hashable, Mapping, Tuple
+from typing import Any, Mapping, Tuple, TypeAlias
 
 from immutabledict import immutabledict
 
@@ -117,12 +117,13 @@ class CodeGenPreprocessor(ToIndexLambdaMixin, CopyMapper):  # type: ignore[misc]
     :class:`~pytato.array.Stack`            :class:`~pytato.array.IndexLambda`
     ======================================  =====================================
     """
+    _FunctionCacheT: TypeAlias = CopyMapper._FunctionCacheT
 
     def __init__(
             self,
             target: Target,
             kernels_seen: dict[str, lp.LoopKernel] | None = None,
-            _function_cache: dict[Hashable, FunctionDefinition] | None = None
+            _function_cache: _FunctionCacheT | None = None
             ) -> None:
         super().__init__(_function_cache=_function_cache)
         self.bound_arguments: dict[str, DataInterface] = {}
