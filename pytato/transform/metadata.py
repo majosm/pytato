@@ -44,9 +44,9 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Collection,
-    Hashable,
     List,
     Mapping,
+    TypeAlias,
     TypeVar,
     cast,
 )
@@ -76,7 +76,7 @@ from pytato.array import (
 )
 from pytato.diagnostic import UnknownIndexLambdaExpr
 from pytato.distributed.nodes import DistributedRecv, DistributedSendRefHolder
-from pytato.function import FunctionDefinition, NamedCallResult
+from pytato.function import NamedCallResult
 from pytato.raising import (
     BinaryOp,
     BroadcastOp,
@@ -593,10 +593,12 @@ class AxisTagAttacher(CopyMapper):
     """
     A mapper that tags the axes in a DAG as prescribed by *axis_to_tags*.
     """
+    _FunctionCacheT: TypeAlias = CopyMapper._FunctionCacheT
+
     def __init__(self,
                  axis_to_tags: Mapping[tuple[Array, int], Collection[Tag]],
                  tag_corresponding_redn_descr: bool,
-                 _function_cache: dict[Hashable, FunctionDefinition] | None = None):
+                 _function_cache: _FunctionCacheT | None = None):
         super().__init__(_function_cache=_function_cache)
         self.axis_to_tags: Mapping[tuple[Array, int], Collection[Tag]] = axis_to_tags
         self.tag_corresponding_redn_descr: bool = tag_corresponding_redn_descr
@@ -641,17 +643,16 @@ class AxisTagAttacher(CopyMapper):
         return result
 
     def rec(self, expr: ArrayOrNames) -> Any:
-        key = self.get_cache_key(expr)
+        key = self._cache.get_key(expr)
         try:
-            return self._cache[key]
+            return self._cache.retrieve(expr, key=key)
         except KeyError:
             result = Mapper.rec(self, expr)
             if not isinstance(expr, (AbstractResultWithNamedArrays,
                                      DistributedSendRefHolder)):
                 assert isinstance(expr, Array)
                 result = self._attach_tags(expr, result)
-            self._cache[key] = result
-            return result
+            return self._cache.add(expr, result, key=key)
 
     def map_named_call_result(self, expr: NamedCallResult) -> Array:
         raise NotImplementedError(
