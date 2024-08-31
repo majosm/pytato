@@ -1959,8 +1959,10 @@ def test_function_call(ctx_factory, visualize=False):
                 "baz": 65 * twice_x,
                 "quux": 7 * twice_x_2}
 
-    result_with_functions = pt.tag_all_calls_to_be_inlined(
-        pt.make_dict_of_named_arrays(build_expression(pt.trace_call)))
+    expr = pt.make_dict_of_named_arrays(build_expression(pt.trace_call))
+    expr = pt.transform.CopyMapper(err_on_collision=False)(expr)
+
+    result_with_functions = pt.tag_all_calls_to_be_inlined(expr)
     result_without_functions = pt.make_dict_of_named_arrays(
         build_expression(lambda fn, *args: fn(*args)))
 
