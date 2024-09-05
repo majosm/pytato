@@ -95,6 +95,7 @@ class RandomDAGContext:
                  rng: np.random.Generator,
                  axis_len: int,
                  use_numpy: bool,
+                 allow_duplicate_nodes: bool = False,
                  additional_generators: (
                      Sequence[tuple[int, Callable[[RandomDAGContext], Array]]]
                          | None) = None
@@ -109,6 +110,7 @@ class RandomDAGContext:
         self.axis_len = axis_len
         self.past_results: list[Array] = []
         self.use_numpy = use_numpy
+        self.allow_duplicate_nodes = allow_duplicate_nodes
 
         if additional_generators is None:
             additional_generators = []
@@ -160,7 +162,13 @@ def make_random_dag_inner(rdagc: RandomDAGContext) -> Any:
         v = rng.integers(0, max_prob_hardcoded + additional_prob)
 
         if v < 600:
-            return make_random_constant(rdagc, naxes=rng.integers(1, 3))
+            result = make_random_constant(rdagc, naxes=rng.integers(1, 3))
+
+            # FIXME: Is there a nicer way to do this?
+            if not rdagc.use_numpy and not rdagc.allow_duplicate_nodes:
+                result = pt.transform.CopyMapper(err_on_collision=False)(result)
+
+            return result
 
         elif v < 1000:
             op1 = make_random_dag(rdagc)
@@ -183,9 +191,14 @@ def make_random_dag_inner(rdagc: RandomDAGContext) -> Any:
             # just inserted a few new 1-long axes. Those need to go before we
             # return.
             if which_op in ["maximum", "minimum"]:
-                return rdagc.np.squeeze(getattr(rdagc.np, which_op)(op1, op2))
+                result = rdagc.np.squeeze(getattr(rdagc.np, which_op)(op1, op2))
             else:
-                return rdagc.np.squeeze(which_op(op1, op2))
+                result = rdagc.np.squeeze(which_op(op1, op2))
+
+            if not rdagc.use_numpy and not rdagc.allow_duplicate_nodes:
+                result = pt.transform.CopyMapper(err_on_collision=False)(result)
+
+            return result
 
         elif v < 1075:
             op1 = make_random_dag(rdagc)
@@ -193,24 +206,43 @@ def make_random_dag_inner(rdagc: RandomDAGContext) -> Any:
             if op1.ndim <= 1 and op2.ndim <= 1:
                 continue
 
-            return op1 @ op2
+            result = op1 @ op2
+
+            if not rdagc.use_numpy and not rdagc.allow_duplicate_nodes:
+                result = pt.transform.CopyMapper(err_on_collision=False)(result)
+
+            return result
 
         elif v < 1275:
             if not rdagc.past_results:
                 continue
-            return rdagc.past_results[rng.integers(0, len(rdagc.past_results))]
+            result = rdagc.past_results[rng.integers(0, len(rdagc.past_results))]
+
+            if not rdagc.use_numpy and not rdagc.allow_duplicate_nodes:
+                result = pt.transform.CopyMapper(err_on_collision=False)(result)
+
+            return result
 
         elif v < max_prob_hardcoded:
             result = make_random_dag(rdagc)
-            return rdagc.np.transpose(
+            result = rdagc.np.transpose(
                     result,
                     tuple(rng.permuted(list(range(result.ndim)))))
+
+            if not rdagc.use_numpy and not rdagc.allow_duplicate_nodes:
+                result = pt.transform.CopyMapper(err_on_collision=False)(result)
+
+            return result
 
         else:
             base_prob = max_prob_hardcoded
             for fake_prob, gen_func in rdagc.additional_generators:
                 if base_prob <= v < base_prob + fake_prob:
-                    return gen_func(rdagc)
+                    result = gen_func(rdagc)
+                    if not rdagc.use_numpy and not rdagc.allow_duplicate_nodes:
+                        result = pt.transform.CopyMapper(err_on_collision=False)(
+                            result)
+                    return result
 
                 base_prob += fake_prob
 
@@ -242,19 +274,32 @@ def make_random_dag(rdagc: RandomDAGContext) -> Any:
             subscript[rng.integers(0, result.ndim)] = int(
                     rng.integers(0, rdagc.axis_len))
 
-            return result[tuple(subscript)]
+            result = result[tuple(subscript)]
+
+            if not rdagc.use_numpy and not rdagc.allow_duplicate_nodes:
+                result = pt.transform.CopyMapper(err_on_collision=False)(result)
+
+            return result
 
         elif v == 1:
             # reduce away an axis
 
             # FIXME do reductions other than sum?
-            return rdagc.np.sum(
+            result = rdagc.np.sum(
                     result, axis=int(rng.integers(0, result.ndim)))
+
+            if not rdagc.use_numpy and not rdagc.allow_duplicate_nodes:
+                result = pt.transform.CopyMapper(err_on_collision=False)(result)
+
+            return result
 
         else:
             raise AssertionError()
 
     rdagc.past_results.append(result)
+
+    if not rdagc.use_numpy and not rdagc.allow_duplicate_nodes:
+        result = pt.transform.CopyMapper(err_on_collision=False)(result)
 
     return result
 
@@ -269,7 +314,8 @@ def get_random_pt_dag(seed: int,
                           Sequence[tuple[int, Callable[[RandomDAGContext], Array]]]
                               | None) = None,
                       axis_len: int = 4,
-                      convert_dws_to_placeholders: bool = False
+                      convert_dws_to_placeholders: bool = False,
+                      allow_duplicate_nodes: bool = False
                       ) -> pt.DictOfNamedArrays:
     if additional_generators is None:
         additional_generators = []
@@ -280,6 +326,7 @@ def get_random_pt_dag(seed: int,
 
     rdagc_comm = RandomDAGContext(np.random.default_rng(seed=seed),
             axis_len=axis_len, use_numpy=False,
+            allow_duplicate_nodes=allow_duplicate_nodes,
             additional_generators=additional_generators)
     dag = pt.make_dict_of_named_arrays({"result": make_random_dag(rdagc_comm)})
 
