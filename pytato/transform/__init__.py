@@ -1888,6 +1888,7 @@ class CachedMapAndCopyMapper(CopyMapper):
 
     def __init__(
             self,
+            # FIXME: Should map_fn be applied to functions too?
             map_fn: Callable[[ArrayOrNames], ArrayOrNames],
             _function_cache: _FunctionCacheT | None = None
             ) -> None:
