@@ -24,7 +24,7 @@ THE SOFTWARE.
 """
 
 import dataclasses
-from typing import Any, Mapping, Tuple
+from typing import Any, Hashable, Mapping, Tuple
 
 from immutabledict import immutabledict
 
@@ -42,7 +42,7 @@ from pytato.array import (
     SizeParam,
     make_dict_of_named_arrays,
 )
-from pytato.function import NamedCallResult
+from pytato.function import FunctionDefinition, NamedCallResult
 from pytato.loopy import LoopyCall
 from pytato.scalar_expr import IntegralScalarExpression
 from pytato.target import Target
@@ -118,10 +118,13 @@ class CodeGenPreprocessor(ToIndexLambdaMixin, CopyMapper):  # type: ignore[misc]
     ======================================  =====================================
     """
 
-    def __init__(self, target: Target,
-                 kernels_seen: dict[str, lp.LoopKernel] | None = None
-                 ) -> None:
-        super().__init__()
+    def __init__(
+            self,
+            target: Target,
+            kernels_seen: dict[str, lp.LoopKernel] | None = None,
+            _function_cache: dict[Hashable, FunctionDefinition] | None = None
+            ) -> None:
+        super().__init__(_function_cache=_function_cache)
         self.bound_arguments: dict[str, DataInterface] = {}
         self.var_name_gen: UniqueNameGenerator = UniqueNameGenerator()
         self.target = target
@@ -159,7 +162,7 @@ class CodeGenPreprocessor(ToIndexLambdaMixin, CopyMapper):  # type: ignore[misc]
         # {{{ eliminate callable name collision
 
         for name, clbl in translation_unit.callables_table.items():
-            if isinstance(clbl, lp.kernel.function_interface.CallableKernel):
+            if isinstance(clbl, lp.CallableKernel):
                 if name in self.kernels_seen and (
                         translation_unit[name] != self.kernels_seen[name]):
                     # callee name collision => must rename
@@ -186,7 +189,7 @@ class CodeGenPreprocessor(ToIndexLambdaMixin, CopyMapper):  # type: ignore[misc]
                                             translation_unit, name, new_name)
                     name = new_name
 
-                self.kernels_seen[name] = translation_unit[name]
+                self.kernels_seen[name] = clbl.subkernel
 
         # }}}
 
@@ -247,11 +250,14 @@ def normalize_outputs(
 
 @optimize_mapper(drop_args=True, drop_kwargs=True, inline_get_cache_key=True)
 class NamesValidityChecker(CachedWalkMapper):
-    def __init__(self) -> None:
+    def __init__(self, _visited_functions: set[Any] | None = None) -> None:
         self.name_to_input: dict[str, InputArgumentBase] = {}
-        super().__init__()
+        super().__init__(_visited_functions=_visited_functions)
 
     def get_cache_key(self, expr: ArrayOrNames) -> int:
+        return id(expr)
+
+    def get_function_definition_cache_key(self, expr: FunctionDefinition) -> int:
         return id(expr)
 
     def post_visit(self, expr: Any) -> None:
