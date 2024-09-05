@@ -81,16 +81,18 @@ class Inliner(CopyMapper):
     """
     Primary mapper for :func:`inline_calls`.
     """
-    def __init__(self) -> None:
+    def __init__(
+            self,
+            _function_cache: dict[Hashable, CachedMapperFunctionT] | None = None
+            ) -> None:
         # Must use err_on_collision=False because we're combining expressions
         # that were previously in two different call stack frames (and were thus
         # cached separately)
-        super().__init__(err_on_collision=False)
+        super().__init__(err_on_collision=False, _function_cache=_function_cache)
 
-    @memoize_method
     def clone_for_callee(
             self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
-        return type(self)()
+        return type(self)(_function_cache=self._function_cache)
 
     def map_call(self, expr: Call) -> AbstractResultWithNamedArrays:
         if expr.tags_of_type(InlineCallTag):
