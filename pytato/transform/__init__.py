@@ -124,6 +124,7 @@ __doc__ = """
 .. autofunction:: map_and_copy
 .. autofunction:: materialize_with_mpms
 .. autofunction:: deduplicate_data_wrappers
+.. autofunction:: unify_materialization_tags
 .. automodule:: pytato.transform.lower_to_index_lambda
 .. automodule:: pytato.transform.remove_broadcasts_einsum
 .. automodule:: pytato.transform.einsum_distributive_law
@@ -2918,5 +2919,32 @@ def deduplicate_data_wrappers(array_or_names: ArrayOrNames) -> ArrayOrNames:
 
 # }}}
 
+
+# {{{ unify_materialization_tags
+
+def unify_materialization_tags(array_or_names: ArrayOrNames) -> ArrayOrNames:
+    """
+    For the expression graph given as *array_or_names*, replace all
+    non-materialized subexpressions with the corresponding materialized version if
+    one exists elsewhere in the DAG.
+    """
+    from pytato.analysis import collect_materialized_nodes
+    materialized_exprs = collect_materialized_nodes(array_or_names)
+
+    non_materialized_expr_to_materialized_expr = {
+        expr.without_tags(ImplStored()): expr
+        for expr in materialized_exprs}
+
+    def unify(expr):
+        if expr.tags_of_type(ImplStored):
+            return expr
+        try:
+            return non_materialized_expr_to_materialized_expr[expr]
+        except KeyError:
+            return expr
+
+    return map_and_copy(array_or_names, unify)
+
+# }}}
 
 # vim: foldmethod=marker
