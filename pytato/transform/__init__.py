@@ -110,6 +110,7 @@ __doc__ = """
 .. autoclass:: TransformMapperWithExtraArgs
 .. autoclass:: CopyMapper
 .. autoclass:: CopyMapperWithExtraArgs
+.. autoclass:: Deduplicator
 .. autoclass:: CombineMapper
 .. autoclass:: DependencyMapper
 .. autoclass:: InputGatherer
@@ -1531,6 +1532,28 @@ class DirectPredecessorsGetter(Mapper):
     def map_named_call_result(
             self, expr: NamedCallResult) -> frozenset[ArrayOrNames]:
         return frozenset([expr._container])
+
+# }}}
+
+
+# {{{ Deduplicator
+
+class Deduplicator(CopyMapper):
+    """Removes duplicate nodes from an expression."""
+    def __init__(
+            self,
+            _function_cache: _FunctionCacheT | None = None
+            ) -> None:
+        super().__init__(
+            err_on_collision=False, err_on_no_op_duplication=False,
+            _function_cache=_function_cache)
+
+    def clone_for_callee(
+            self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
+        # type-ignore-reason: self.__init__ has a different function signature
+        # than Mapper.__init__
+        return type(self)(  # type: ignore[call-arg]
+            _function_cache=self._function_cache)  # type: ignore[attr-defined]
 
 # }}}
 
