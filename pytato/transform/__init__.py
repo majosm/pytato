@@ -1489,6 +1489,7 @@ class Deduplicator(CopyMapper):
 
 # {{{ CombineMapper
 
+# FIXME: Can this be made to inherit from CachedMapper?
 class CombineMapper(Mapper, Generic[CombineT]):
     """
     Abstract mapper that recursively combines the results of user nodes
