@@ -362,12 +362,16 @@ class CachedMapper(Mapper, Generic[CachedMapperT, CachedMapperFunctionT]):
 
     def __init__(
             self,
-            err_on_collision: bool = False,
+            err_on_collision: bool | None = None,
             # Arrays are cached separately for each call stack frame, but
             # functions are cached globally
             _function_cache: _FunctionCacheT[CachedMapperFunctionT] | None = None
             ) -> None:
         super().__init__()
+
+        if err_on_collision is None:
+            err_on_collision = __debug__
+
         self._cache: CachedMapper._CacheT[CachedMapperT] = \
             CachedMapper._CacheType(
                 lambda expr: expr,
@@ -558,8 +562,8 @@ class TransformMapper(CachedMapper[ArrayOrNames, FunctionDefinition]):
 
     def __init__(
             self,
-            err_on_collision: bool = False,
-            err_on_no_op_duplication: bool = False,
+            err_on_collision: bool | None = None,
+            err_on_no_op_duplication: bool | None = None,
             _function_cache: _FunctionCacheT | None = None
             ) -> None:
         """
@@ -568,6 +572,11 @@ class TransformMapper(CachedMapper[ArrayOrNames, FunctionDefinition]):
         :arg err_on_no_op_duplication: Raise an exception if mapping produces a new
             array instance that has the same key as the input array.
         """
+        if err_on_collision is None:
+            err_on_collision = __debug__
+        if err_on_no_op_duplication is None:
+            err_on_no_op_duplication = __debug__
+
         if _function_cache is None:
             _function_cache = TransformMapper._FunctionCacheType(
                 lambda expr: expr,
@@ -761,8 +770,8 @@ class TransformMapperWithExtraArgs(CachedMapper[ArrayOrNames, FunctionDefinition
 
     def __init__(
             self,
-            err_on_collision: bool = False,
-            err_on_no_op_duplication: bool = False,
+            err_on_collision: bool | None = None,
+            err_on_no_op_duplication: bool | None = None,
             _function_cache: _FunctionCacheT | None = None
             ) -> None:
         """
@@ -771,6 +780,11 @@ class TransformMapperWithExtraArgs(CachedMapper[ArrayOrNames, FunctionDefinition
         :arg err_on_no_op_duplication: Raise an exception if mapping produces a new
             array instance that has the same key as the input array.
         """
+        if err_on_collision is None:
+            err_on_collision = __debug__
+        if err_on_no_op_duplication is None:
+            err_on_no_op_duplication = __debug__
+
         def key_func(
                 expr: ArrayOrNames | FunctionDefinition,
                 *args: Any, **kwargs: Any) -> Hashable:
