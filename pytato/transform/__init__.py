@@ -473,6 +473,8 @@ class TransformMapperCache(CachedMapperCache[CacheExprT, CacheKeyT, CacheExprT])
 
         self.err_on_no_op_duplication = err_on_no_op_duplication
 
+        self._result_key_to_result: dict[CacheKeyT, CacheExprT] = {}
+
     def add(
             self,
             expr: CacheExprT,
@@ -490,21 +492,26 @@ class TransformMapperCache(CachedMapperCache[CacheExprT, CacheKeyT, CacheExprT])
         if result_key is None:
             result_key = self._key_func(result)
 
-        from pytato.analysis import DirectPredecessorsGetter
-        if (
-                self.err_on_no_op_duplication
-                and hash(result_key) == hash(key)
-                and result_key == key
-                and result is not expr
-                # This is questionable, as it will not detect duplication of
-                # things that are not considered direct predecessors (e.g.
-                # a Call's FunctionDefinition). Not sure how to handle such cases
-                and all(
-                    result_pred is pred
-                    for pred, result_pred in zip(
-                        DirectPredecessorsGetter()(expr),
-                        DirectPredecessorsGetter()(result)))):
-            raise CacheNoOpDuplicationError from None
+        try:
+            result = self._result_key_to_result[result_key]
+        except KeyError:
+            from pytato.analysis import DirectPredecessorsGetter
+            if (
+                    self.err_on_no_op_duplication
+                    and hash(result_key) == hash(key)
+                    and result_key == key
+                    and result is not expr
+                    # This is questionable, as it will not detect duplication of
+                    # things that are not considered direct predecessors (e.g.
+                    # a Call's FunctionDefinition). Not sure how to handle such cases
+                    and all(
+                        result_pred is pred
+                        for pred, result_pred in zip(
+                            DirectPredecessorsGetter()(expr),
+                            DirectPredecessorsGetter()(result)))):
+                raise CacheNoOpDuplicationError from None
+
+            self._result_key_to_result[result_key] = result
 
         self._expr_key_to_result[key] = result
         if self.err_on_collision:
@@ -639,6 +646,8 @@ class TransformMapperWithExtraArgsCache(
 
         self.err_on_no_op_duplication = err_on_no_op_duplication
 
+        self._result_key_to_result: dict[CacheKeyT, CacheExprT] = {}
+
     def get_key(self, expr: CacheExprT, *args: Any, **kwargs: Any) -> CacheKeyT:
         """Compute the key for an input expression."""
         return self._key_func(expr, *args, **kwargs)
@@ -662,20 +671,25 @@ class TransformMapperWithExtraArgsCache(
         if result_key is None:
             result_key = self._key_func(result, *key_args, **key_kwargs)
 
-        if (
-                self.err_on_no_op_duplication
-                and hash(result_key) == hash(key)
-                and result_key == key
-                and result is not expr
-                # This is questionable, as it will not detect duplication of
-                # things that are not considered direct predecessors (e.g.
-                # a Call's FunctionDefinition). Not sure how to handle such cases
-                and all(
-                    result_pred is pred
-                    for pred, result_pred in zip(
-                        DirectPredecessorsGetter()(expr),
-                        DirectPredecessorsGetter()(result)))):
-            raise CacheNoOpDuplicationError from None
+        try:
+            result = self._result_key_to_result[result_key]
+        except KeyError:
+            if (
+                    self.err_on_no_op_duplication
+                    and hash(result_key) == hash(key)
+                    and result_key == key
+                    and result is not expr
+                    # This is questionable, as it will not detect duplication of
+                    # things that are not considered direct predecessors (e.g.
+                    # a Call's FunctionDefinition). Not sure how to handle such cases
+                    and all(
+                        result_pred is pred
+                        for pred, result_pred in zip(
+                            DirectPredecessorsGetter()(expr),
+                            DirectPredecessorsGetter()(result)))):
+                raise CacheNoOpDuplicationError from None
+
+            self._result_key_to_result[result_key] = result
 
         self._expr_key_to_result[key] = result
         if self.err_on_collision:
