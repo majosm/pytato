@@ -2193,7 +2193,7 @@ class CachedMapAndCopyMapper(CopyMapper):
             return self._cache_retrieve(expr, key=key)  # type: ignore[return-value]
         except KeyError:
             return self._cache_add(
-                expr, super().rec(self.map_fn(expr)), key=key)
+                expr, Mapper.rec(self, self.map_fn(expr)), key=key)
 
     if TYPE_CHECKING:
         def __call__(self, expr: MappedT) -> MappedT:
