@@ -681,8 +681,9 @@ class NodeCollector(CachedWalkMapper):
     def __init__(
             self,
             collect_func: Callable[[NodeT], bool],
-            traverse_functions: bool = True) -> None:
-        super().__init__()
+            traverse_functions: bool = True,
+            _visited_functions: set[Any] | None = None) -> None:
+        super().__init__(_visited_functions=_visited_functions)
         self.collect_func = collect_func
         self.traverse_functions = traverse_functions
         self.nodes: set[NodeT] = set()
@@ -690,9 +691,18 @@ class NodeCollector(CachedWalkMapper):
     def get_cache_key(self, expr: ArrayOrNames) -> ArrayOrNames:
         return expr
 
+    def get_function_definition_cache_key(
+            self, expr: FunctionDefinition) -> FunctionDefinition:
+        return expr
+
     def clone_for_callee(
-            self: NodeCollector, function: FunctionDefinition) -> NodeCollector:
-        return type(self)(self.collect_func)
+            self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
+        # type-ignore-reason: self.__init__ has a different function signature
+        # than Mapper.__init__
+        return type(self)(
+            collect_func=self.collect_func,  # type: ignore[attr-defined]
+            traverse_functions=self.traverse_functions,  # type: ignore[attr-defined]
+            _visited_functions=self._visited_functions)  # type: ignore[call-arg,attr-defined]
 
     def visit(self, expr: Any) -> bool:
         return not isinstance(expr, FunctionDefinition) or self.traverse_functions
