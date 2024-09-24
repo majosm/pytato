@@ -29,7 +29,6 @@ THE SOFTWARE.
 from typing import TYPE_CHECKING, Any, Mapping
 
 from pymbolic.mapper.optimize import optimize_mapper
-from pytools import memoize_method
 from loopy.tools import LoopyKeyBuilder
 
 from pytato.array import (
@@ -47,7 +46,7 @@ from pytato.array import (
 )
 from pytato.function import Call, FunctionDefinition, NamedCallResult
 from pytato.loopy import LoopyCall
-from pytato.transform import ArrayOrNames, CachedWalkMapper, Mapper
+from pytato.transform import ArrayOrNames, CachedWalkMapper, Mapper, _SelfMapper
 
 
 if TYPE_CHECKING:
@@ -329,6 +328,10 @@ class DirectPredecessorsGetter(Mapper):
     def _get_preds_from_shape(self, shape: ShapeType) -> frozenset[ArrayOrNames]:
         return frozenset({dim for dim in shape if isinstance(dim, Array)})
 
+    def map_dict_of_named_arrays(
+            self, expr: DictOfNamedArrays) -> frozenset[ArrayOrNames]:
+        return frozenset(expr._data.values())
+
     def map_index_lambda(self, expr: IndexLambda) -> frozenset[ArrayOrNames]:
         return (frozenset(expr.bindings.values())
                 | self._get_preds_from_shape(expr.shape))
@@ -411,15 +414,33 @@ class NodeCountMapper(CachedWalkMapper):
        Dictionary mapping node types to number of nodes of that type.
     """
 
-    def __init__(self, count_duplicates: bool = False) -> None:
+    def __init__(
+            self,
+            count_duplicates: bool = False,
+            _visited_functions: set[Any] | None = None,
+            ) -> None:
+        super().__init__(_visited_functions=_visited_functions)
+
         from collections import defaultdict
-        super().__init__()
         self.expr_type_counts: dict[type[Any], int] = defaultdict(int)
         self.count_duplicates = count_duplicates
 
     def get_cache_key(self, expr: ArrayOrNames) -> int | ArrayOrNames:
         # Returns unique nodes only if count_duplicates is False
         return id(expr) if self.count_duplicates else expr
+
+    def get_function_definition_cache_key(
+            self, expr: FunctionDefinition) -> int | FunctionDefinition:
+        # Returns unique nodes only if count_duplicates is False
+        return id(expr) if self.count_duplicates else expr
+
+    def clone_for_callee(
+            self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
+        # type-ignore-reason: self.__init__ has a different function signature
+        # than Mapper.__init__
+        return type(self)(
+            count_duplicates=self.count_duplicates,  # type: ignore[attr-defined]
+            _visited_functions=self._visited_functions)  # type: ignore[call-arg,attr-defined]
 
     def post_visit(self, expr: Any) -> None:
         if not isinstance(expr, DictOfNamedArrays):
@@ -486,12 +507,17 @@ class NodeMultiplicityMapper(CachedWalkMapper):
 
     .. autoattribute:: expr_multiplicity_counts
     """
-    def __init__(self) -> None:
+    def __init__(self, _visited_functions: set[Any] | None = None) -> None:
+        super().__init__(_visited_functions=_visited_functions)
+
         from collections import defaultdict
-        super().__init__()
         self.expr_multiplicity_counts: dict[Array, int] = defaultdict(int)
 
     def get_cache_key(self, expr: ArrayOrNames) -> int:
+        # Returns each node, including nodes that are duplicates
+        return id(expr)
+
+    def get_function_definition_cache_key(self, expr: FunctionDefinition) -> int:
         # Returns each node, including nodes that are duplicates
         return id(expr)
 
@@ -528,14 +554,16 @@ class CallSiteCountMapper(CachedWalkMapper):
        The number of nodes.
     """
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, _visited_functions: set[Any] | None = None) -> None:
+        super().__init__(_visited_functions=_visited_functions)
         self.count = 0
 
     def get_cache_key(self, expr: ArrayOrNames) -> int:
         return id(expr)
 
-    @memoize_method
+    def get_function_definition_cache_key(self, expr: FunctionDefinition) -> int:
+        return id(expr)
+
     def map_function_definition(self, expr: FunctionDefinition) -> None:
         if not self.visit(expr):
             return
