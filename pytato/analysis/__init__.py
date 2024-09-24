@@ -26,7 +26,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Mapping
 
 from pymbolic.mapper.optimize import optimize_mapper
 from loopy.tools import LoopyKeyBuilder
@@ -52,6 +52,11 @@ from pytato.transform import ArrayOrNames, CachedWalkMapper, Mapper, _SelfMapper
 if TYPE_CHECKING:
     from pytato.distributed.nodes import DistributedRecv, DistributedSendRefHolder
 
+
+# FIXME: This isn't quite right; 'Call's should also be included?
+# Maybe nodes should just be arrays...
+NodeT = Array | FunctionDefinition
+
 __doc__ = """
 .. currentmodule:: pytato.analysis
 
@@ -66,6 +71,10 @@ __doc__ = """
 .. autofunction:: get_node_multiplicities
 
 .. autofunction:: get_num_call_sites
+
+.. autofunction:: collect_nodes_of_type
+
+.. autofunction:: collect_materialized_nodes
 
 .. autoclass:: DirectPredecessorsGetter
 """
@@ -422,7 +431,7 @@ class NodeCountMapper(CachedWalkMapper):
         super().__init__(_visited_functions=_visited_functions)
 
         from collections import defaultdict
-        self.expr_type_counts: dict[type[Any], int] = defaultdict(int)
+        self.expr_type_counts: dict[type[NodeT], int] = defaultdict(int)
         self.count_duplicates = count_duplicates
 
     def get_cache_key(self, expr: ArrayOrNames) -> int | ArrayOrNames:
@@ -443,14 +452,27 @@ class NodeCountMapper(CachedWalkMapper):
             _visited_functions=self._visited_functions)  # type: ignore[call-arg,attr-defined]
 
     def post_visit(self, expr: Any) -> None:
-        if not isinstance(expr, DictOfNamedArrays):
+        if isinstance(expr, NodeT):
             self.expr_type_counts[type(expr)] += 1
+
+    def map_function_definition(self, expr: FunctionDefinition) -> None:
+        if not self.visit(expr):
+            return
+
+        new_mapper = self.clone_for_callee(expr)
+        for ret in expr.returns.values():
+            new_mapper(ret)
+
+        for node_type, count in new_mapper.expr_type_counts.items():
+            self.expr_type_counts[node_type] += count
+
+        self.post_visit(expr)
 
 
 def get_node_type_counts(
         outputs: Array | DictOfNamedArrays,
         count_duplicates: bool = False
-        ) -> dict[type[Any], int]:
+        ) -> dict[type[NodeT], int]:
     """
     Returns a dictionary mapping node types to node count for that type
     in DAG *outputs*.
@@ -492,6 +514,31 @@ def get_num_nodes(
 
     return sum(ncm.expr_type_counts.values())
 
+
+def get_num_node_instances(
+        outputs: Array | DictOfNamedArrays,
+        node_type: type[NodeT],
+        strict: bool = True,
+        count_duplicates: bool = False) -> int:
+    """
+    Returns the number of nodes in DAG *outputs* that have type *node_type* (if
+    *strict* is `True`) or are instances of *node_type* (if *strict* is `False`).
+    """
+
+    from pytato.codegen import normalize_outputs
+    outputs = normalize_outputs(outputs)
+
+    ncm = NodeCountMapper(count_duplicates)
+    ncm(outputs)
+
+    if strict:
+        return ncm.expr_type_counts[node_type]
+    else:
+        return sum(
+            count
+            for other_node_type, count in ncm.expr_type_counts.items()
+            if isinstance(other_node_type, node_type))
+
 # }}}
 
 
@@ -507,11 +554,16 @@ class NodeMultiplicityMapper(CachedWalkMapper):
 
     .. autoattribute:: expr_multiplicity_counts
     """
-    def __init__(self, _visited_functions: set[Any] | None = None) -> None:
+    def __init__(
+            self,
+            traverse_functions: bool = True,
+            _visited_functions: set[Any] | None = None) -> None:
         super().__init__(_visited_functions=_visited_functions)
 
+        self.traverse_functions = traverse_functions
+
         from collections import defaultdict
-        self.expr_multiplicity_counts: dict[Array, int] = defaultdict(int)
+        self.expr_multiplicity_counts: dict[NodeT, int] = defaultdict(int)
 
     def get_cache_key(self, expr: ArrayOrNames) -> int:
         # Returns each node, including nodes that are duplicates
@@ -521,13 +573,37 @@ class NodeMultiplicityMapper(CachedWalkMapper):
         # Returns each node, including nodes that are duplicates
         return id(expr)
 
+    def clone_for_callee(
+            self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
+        # type-ignore-reason: self.__init__ has a different function signature
+        # than Mapper.__init__
+        return type(self)(
+            traverse_functions=self.traverse_functions,  # type: ignore[attr-defined]
+            _visited_functions=self._visited_functions)  # type: ignore[call-arg,attr-defined]
+
+    def visit(self, expr: Any) -> bool:
+        return not isinstance(expr, FunctionDefinition) or self.traverse_functions
+
     def post_visit(self, expr: Any) -> None:
-        if not isinstance(expr, DictOfNamedArrays):
+        if isinstance(expr, NodeT):
             self.expr_multiplicity_counts[expr] += 1
+
+    def map_function_definition(self, expr: FunctionDefinition) -> None:
+        if not self.visit(expr):
+            return
+
+        new_mapper = self.clone_for_callee(expr)
+        for ret in expr.returns.values():
+            new_mapper(ret)
+
+        for subexpr, count in new_mapper.expr_multiplicity_counts.items():
+            self.expr_multiplicity_counts[subexpr] += count
+
+        self.post_visit(expr)
 
 
 def get_node_multiplicities(
-        outputs: Array | DictOfNamedArrays) -> dict[Array, int]:
+        outputs: Array | DictOfNamedArrays) -> dict[NodeT, int]:
     """
     Returns the multiplicity per `expr`.
     """
@@ -564,20 +640,20 @@ class CallSiteCountMapper(CachedWalkMapper):
     def get_function_definition_cache_key(self, expr: FunctionDefinition) -> int:
         return id(expr)
 
+    def post_visit(self, expr: Any) -> None:
+        if isinstance(expr, Call):
+            self.count += 1
+
     def map_function_definition(self, expr: FunctionDefinition) -> None:
         if not self.visit(expr):
             return
 
         new_mapper = self.clone_for_callee(expr)
-        for subexpr in expr.returns.values():
-            new_mapper(subexpr)
+        for ret in expr.returns.values():
+            new_mapper(ret)
         self.count += new_mapper.count
 
         self.post_visit(expr)
-
-    def post_visit(self, expr: Any) -> None:
-        if isinstance(expr, Call):
-            self.count += 1
 
 
 def get_num_call_sites(outputs: Array | DictOfNamedArrays) -> int:
@@ -590,6 +666,98 @@ def get_num_call_sites(outputs: Array | DictOfNamedArrays) -> int:
     cscm(outputs)
 
     return cscm.count
+
+# }}}
+
+
+# {{{ NodeCollector
+
+# FIXME: Decide if this should be a CombineMapper instead?
+@optimize_mapper(drop_args=True, drop_kwargs=True, inline_get_cache_key=True)
+class NodeCollector(CachedWalkMapper):
+    """
+    Collects all nodes matching specified criteria in a DAG.
+
+    .. attribute:: nodes
+
+       The collected nodes.
+    """
+
+    def __init__(
+            self,
+            collect_func: Callable[[NodeT], bool],
+            traverse_functions: bool = True,
+            _visited_functions: set[Any] | None = None) -> None:
+        super().__init__(_visited_functions=_visited_functions)
+        self.collect_func = collect_func
+        self.traverse_functions = traverse_functions
+        self.nodes: set[NodeT] = set()
+
+    def get_cache_key(self, expr: ArrayOrNames) -> ArrayOrNames:
+        return expr
+
+    def get_function_definition_cache_key(
+            self, expr: FunctionDefinition) -> FunctionDefinition:
+        return expr
+
+    def clone_for_callee(
+            self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
+        # type-ignore-reason: self.__init__ has a different function signature
+        # than Mapper.__init__
+        return type(self)(
+            collect_func=self.collect_func,  # type: ignore[attr-defined]
+            traverse_functions=self.traverse_functions,  # type: ignore[attr-defined]
+            _visited_functions=self._visited_functions)  # type: ignore[call-arg,attr-defined]
+
+    def visit(self, expr: Any) -> bool:
+        return not isinstance(expr, FunctionDefinition) or self.traverse_functions
+
+    def post_visit(self, expr: Any) -> None:
+        if isinstance(expr, NodeT) and self.collect_func(expr):
+            self.nodes.add(expr)
+
+    def map_function_definition(self, expr: FunctionDefinition) -> None:
+        if not self.visit(expr):
+            return
+
+        new_mapper = self.clone_for_callee(expr)
+        for ret in expr.returns.values():
+            new_mapper(ret)
+
+        self.nodes |= new_mapper.nodes
+
+        self.post_visit(expr)
+
+
+def collect_nodes_of_type(
+        outputs: Array | DictOfNamedArrays,
+        node_type: type[NodeT]) -> frozenset[NodeT]:
+    """Returns the nodes that are instances of *node_type* in DAG *outputs*."""
+    from pytato.codegen import normalize_outputs
+    outputs = normalize_outputs(outputs)
+
+    def collect_func(expr: NodeT) -> bool:
+        return isinstance(expr, node_type)
+
+    nc = NodeCollector(collect_func)
+    nc(outputs)
+
+    return frozenset(nc.nodes)
+
+
+def collect_materialized_nodes(
+        outputs: Array | DictOfNamedArrays) -> frozenset[NodeT]:
+    from pytato.codegen import normalize_outputs
+    outputs = normalize_outputs(outputs)
+
+    def collect_func(expr: NodeT) -> bool:
+        from pytato.tags import ImplStored
+        return bool(expr.tags_of_type(ImplStored))
+
+    nc = NodeCollector(collect_func)
+    nc(outputs)
+
+    return frozenset(nc.nodes)
 
 # }}}
 
