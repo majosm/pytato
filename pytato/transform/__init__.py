@@ -306,6 +306,9 @@ class CachedMapperCache(Generic[CacheExprT, CacheKeyT, CacheResultT]):
         if key is None:
             key = self._key_func(expr)
 
+        assert key not in self._expr_key_to_result, \
+            "Cache entry is already present for this key."
+
         self._expr_key_to_result[key] = result
         if self.err_on_collision:
             self._expr_key_to_expr[key] = expr
@@ -494,6 +497,9 @@ class TransformMapperCache(CachedMapperCache[CacheExprT, CacheKeyT, CacheExprT])
         if result_key is None:
             result_key = self._key_func(result)
 
+        assert key not in self._expr_key_to_result, \
+            "Cache entry is already present for this key."
+
         try:
             result = self._result_key_to_result[result_key]
         except KeyError:
@@ -674,6 +680,9 @@ class TransformMapperWithExtraArgsCache(
             key = self._key_func(expr, *key_args, **key_kwargs)
         if result_key is None:
             result_key = self._key_func(result, *key_args, **key_kwargs)
+
+        assert key not in self._expr_key_to_result, \
+            "Cache entry is already present for this key."
 
         try:
             result = self._result_key_to_result[result_key]
