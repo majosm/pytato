@@ -328,14 +328,19 @@ class _NamedCallResultReplacerPostConcatenate(CopyMapper):
         traversing. Must be altered (by creating a new instance) before
         entering the function body of a new :class:`~pytato.function.Call`.
     """
-    def __init__(self,
-                 replacement_map: Mapping[
-                    Tuple[
-                        NamedCallResult,
-                        Tuple[Call, ...]],
-                    Array],
-                 current_stack: Tuple[Call, ...]) -> None:
-        super().__init__()
+    _FunctionCacheT: TypeAlias = CopyMapper._FunctionCacheT
+
+    def __init__(
+            self,
+            replacement_map: Mapping[
+                Tuple[
+                    NamedCallResult,
+                    Tuple[Call, ...]],
+                Array],
+            current_stack: Tuple[Call, ...],
+            _function_cache: FunctionCacheT | None = None,
+            ) -> None:
+        super().__init__(_function_cache=_function_cache)
         self.replacement_map = replacement_map
         self.current_stack = current_stack
 
@@ -349,21 +354,26 @@ class _NamedCallResultReplacerPostConcatenate(CopyMapper):
         return type(self)(  # type: ignore[call-arg]
             self.replacement_map,  # type: ignore[attr-defined]
             self.current_stack + (expr,),  # type: ignore[attr-defined]
+            _function_cache=self._function_cache
         )
 
-    def map_call(self, expr: Call) -> AbstractResultWithNamedArrays:
-        new_mapper = self.clone_with_new_call_on_stack(expr)
-        new_returns = {name: new_mapper(ret)
-                       for name, ret in expr.function.returns.items()}
+    def map_function_definition(
+            self, expr: FunctionDefinition) -> FunctionDefinition:
+        # No clone here because we're cloning in map_call instead
+        new_returns = {name: self.rec(ret)
+                       for name, ret in expr.returns.items()}
         if all(
                 new_ret is ret
                 for ret, new_ret in zip(
-                    expr.function.returns.values(),
+                    expr.returns.values(),
                     new_returns.values())):
-            new_function = expr.function
+            return expr
         else:
-            new_function = attrs.evolve(
-                expr.function, returns=immutabledict(new_returns))
+            return attrs.evolve(expr, returns=immutabledict(new_returns))
+
+    def map_call(self, expr: Call) -> AbstractResultWithNamedArrays:
+        new_mapper = self.clone_with_new_call_on_stack(expr)
+        new_function = new_mapper.rec_function_definition(expr.function)
         new_bindings = {
             name: self.rec(bnd)
             for name, bnd in expr.bindings.items()}
@@ -751,7 +761,7 @@ def _combine_named_result_accs_exhaustive(
                                           immutabledict(pl_concatabilities))
 
 
-class _InputConcatabilityGetter(CachedMapper[ArrayOrNames]):
+class _InputConcatabilityGetter(CachedMapper[ArrayOrNames, FunctionDefinition]):
     """
     Maps :class:`pytato.array.Array` expressions to
     :class:`_InputConcatenatabilityGetterAcc` that summarizes constraints
@@ -948,17 +958,29 @@ def _get_concatenated_shape(arrays: Collection[Array], iaxis: int) -> ShapeType:
 
 
 class _ConcatabilityCollector(CachedWalkMapper):
-    def __init__(self, current_stack: Tuple[Call, ...]) -> None:
+    def __init__(
+            self,
+            current_stack: Tuple[Call, ...],
+            _visited_functions: set[Any] | None = None
+            ) -> None:
         self.ary_to_concatenatability: Dict[ArrayOnStackT, Concatenatability] = {}
         self.current_stack = current_stack
         self.call_sites_on_hold: Set[Call] = set()
-        super().__init__()
+        super().__init__(_visited_functions=_visited_functions)
 
     # type-ignore-reason: CachedWalkMaper takes variadic `*args, **kwargs`.
     def get_cache_key(self,  # type: ignore[override]
                       expr: ArrayOrNames,
                       *args: Any,
                       ) -> Tuple[ArrayOrNames, Any]:
+        return (expr, args)
+
+    # type-ignore-reason: CachedWalkMaper takes variadic `*args, **kwargs`.
+    def get_function_definition_cache_key(
+            self,  # type: ignore[override]
+            expr: FunctionDefinition,
+            *args: Any,
+            ) -> tuple[ArrayOrNames, Any]:
         return (expr, args)
 
     def _record_concatability(self, expr: Array,
@@ -977,6 +999,7 @@ class _ConcatabilityCollector(CachedWalkMapper):
         # type-ignore-reason: Mapper class does not define these attributes.
         return type(self)(  # type: ignore[call-arg]
             self.current_stack + (expr,),  # type: ignore[attr-defined]
+            _visited_functions=self._visited_functions
         )
 
     def _map_input_arg_base(self,
@@ -1068,6 +1091,7 @@ class _ConcatabilityCollector(CachedWalkMapper):
             self.call_sites_on_hold.add(expr)
         else:
             self.call_sites_on_hold -= {expr}
+            # FIXME The code below bypasses caching of function definitions
             new_mapper = self.clone_with_new_call_on_stack(expr)
             for name, val_in_callee in expr.function.returns.items():
                 new_mapper(val_in_callee,
@@ -1177,21 +1201,30 @@ class _OutputSlicer:
 
 
 class _FunctionConcatenator(TransformMapperWithExtraArgs):
+    _FunctionCacheT: TypeAlias = TransformMapperWithExtraArgs._FunctionCacheT
+
     def __init__(self,
                  current_stack: Tuple[Call, ...],
                  input_concatenator: _InputConcatenator,
                  ary_to_concatenatability: Map[ArrayOnStackT, Concatenatability],
+                 _function_cache: _FunctionCacheT | None = None,
                  ) -> None:
-        super().__init__()
+        super().__init__(_function_cache=_function_cache)
         self.current_stack = current_stack
         self.input_concatenator = input_concatenator
         self.ary_to_concatenatability = ary_to_concatenatability
 
-    def clone_with_new_call_on_stack(self, expr: Call) -> _FunctionConcatenator:
-        return _FunctionConcatenator(
+    def clone_for_callee(
+            self: _SelfMapper, function: FunctionDefinition) -> _SelfMapper:
+        raise AssertionError("Control should not reach here."
+                             " Call clone_with_new_call_on_stack instead.")
+
+    def clone_with_new_call_on_stack(self: _SelfMapper, expr: Call) -> _SelfMapper:
+        return type(self)(
             self.current_stack + (expr,),
             self.input_concatenator,
             self.ary_to_concatenatability,
+            _function_cache=_function_cache
         )
 
     def _get_concatenatability(self, expr: Array) -> Concatenatability:
@@ -1465,26 +1498,47 @@ class _FunctionConcatenator(TransformMapperWithExtraArgs):
         else:
             raise NotImplementedError(type(concat))
 
+    def map_function_definition(
+            self,
+            expr: FunctionDefinition,
+            exprs_from_other_calls: Tuple[FunctionDefinition, ...]
+            ) -> FunctionDefinition:
+        # No clone here because we're cloning in map_call instead
+        new_returns = {
+            name: self.rec(
+                ret,
+                tuple(
+                    other_expr.returns[name]
+                    for other_expr in exprs_from_other_calls))
+            for name, ret in expr.returns.items()}
+        if all(
+                new_ret is ret
+                for ret, new_ret in zip(
+                    expr.returns.values(),
+                    new_returns.values())):
+            return expr
+        else:
+            return attrs.evolve(expr, returns=immutabledict(new_returns))
+
     def map_call(self, expr: Call, other_callsites: Tuple[Call, ...]) -> Call:
+        new_mapper = self.clone_with_new_call_on_stack(expr)
+        new_function = new_mapper.rec_function_definition(
+            expr.function,
+            tuple(other_call.function for other_call in other_callsites))
         new_bindings = {name: self.rec(bnd,
                                        tuple(callsite.bindings[name]
                                              for callsite in other_callsites))
                         for name, bnd in expr.bindings.items()}
-        new_mapper = self.clone_with_new_call_on_stack(expr)
-        fn_defn = expr.function
-        new_fn_defn = FunctionDefinition(
-            fn_defn.parameters,
-            fn_defn.return_type,
-            immutabledict({ret: new_mapper(ret_val,
-                                 tuple(other_call.function.returns[ret]
-                                       for other_call in other_callsites)
-                                 )
-                 for ret, ret_val in fn_defn.returns.items()}),
-            tags=fn_defn.tags,
-        )
-        return Call(new_fn_defn,
-                    immutabledict(new_bindings),
-                    tags=expr.tags)
+        if (
+                new_function is expr.function
+                and all(
+                    new_bnd is bnd
+                    for bnd, new_bnd in zip(
+                        expr.bindings.values(),
+                        new_bindings.values()))):
+            return expr
+        else:
+            return Call(new_function, immutabledict(new_bindings), tags=expr.tags)
 
     def map_named_call_result(self,
                               expr: NamedCallResult,
