@@ -2006,12 +2006,12 @@ def test_nested_function_calls(ctx_factory, should_concatenate_bar):
                                           )
     result = pt.tag_all_calls_to_be_inlined(result)
     if should_concatenate_bar:
-        from pytato.transform.calls import CallsiteCollector
-        assert len(CallsiteCollector(())(result)) == 4
+        from pytato.transform.calls import CallSiteDependencyCollector
+        assert len(CallSiteDependencyCollector(())(result)) == 4
         result = pt.concatenate_calls(
             result,
             lambda x: pt.tags.FunctionIdentifier("bar") in x.call.function.tags)
-        assert len(CallsiteCollector(())(result)) == 2
+        assert len(CallSiteDependencyCollector(())(result)) == 2
 
     expect = pt.make_dict_of_named_arrays({"out1": call_bar(ref_tracer, x1, y1),
                                            "out2": call_bar(ref_tracer, x2, y2)}
@@ -2076,7 +2076,7 @@ def test_concatenate_calls_no_nested(ctx_factory):
 
 def test_concatenation_via_constant_expressions(ctx_factory):
 
-    from pytato.transform.calls import CallsiteCollector
+    from pytato.transform.calls import CallSiteDependencyCollector
 
     rng = np.random.default_rng(0)
 
@@ -2108,12 +2108,12 @@ def test_concatenation_via_constant_expressions(ctx_factory):
                                            "rcoords": rcoords})
     result = pt.tag_all_calls_to_be_inlined(result)
 
-    assert len(CallsiteCollector(())(result)) == 2
+    assert len(CallSiteDependencyCollector(())(result)) == 2
     concated_result = pt.concatenate_calls(
         result,
         lambda cs: pt.tags.FunctionIdentifier("resampling") in cs.call.function.tags
     )
-    assert len(CallsiteCollector(())(concated_result)) == 1
+    assert len(CallSiteDependencyCollector(())(concated_result)) == 1
 
     _, out_result = pt.generate_loopy(result)(cq)
     np.testing.assert_allclose(out_result["lcoords"],
