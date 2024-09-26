@@ -2004,6 +2004,7 @@ def test_nested_function_calls(ctx_factory, should_concatenate_bar):
     result = pt.make_dict_of_named_arrays({"out1": call_bar(pt.trace_call, x1, y1),
                                            "out2": call_bar(pt.trace_call, x2, y2)}
                                           )
+    result = pt.transform.Deduplicator()(result)
     result = pt.tag_all_calls_to_be_inlined(result)
     if should_concatenate_bar:
         from pytato.transform.calls import CallSiteDependencyCollector
@@ -2047,6 +2048,7 @@ def test_concatenate_calls_no_nested(ctx_factory):
                                            "out2": 4*pt.trace_call(foo, 4*y1, 9*y2),
                                            "out3": 6*pt.trace_call(foo, 7*z1, 8*z2)
                                            })
+    result = pt.transform.Deduplicator()(result)
 
     concatenated_result = pt.concatenate_calls(
         result, lambda x: pt.tags.FunctionIdentifier("foo") in x.call.function.tags)
@@ -2106,6 +2108,7 @@ def test_concatenation_via_constant_expressions(ctx_factory):
 
     result = pt.make_dict_of_named_arrays({"lcoords": lcoords,
                                            "rcoords": rcoords})
+    result = pt.transform.Deduplicator()(result)
     result = pt.tag_all_calls_to_be_inlined(result)
 
     assert len(CallSiteDependencyCollector(())(result)) == 2
