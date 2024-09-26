@@ -31,6 +31,7 @@ from typing import (
     TypeVar,
 )
 
+import islpy as isl
 from typing import (Tuple, List, Union, Callable, Any, Sequence, Dict,
                     Optional, Iterable, TypeVar, FrozenSet)
 from pytato.array import (Array, ShapeType, IndexLambda, SizeParam, ShapeComponent,
