@@ -878,54 +878,6 @@ def add_store(name: str, expr: Array, result: ImplementedResult,
     loopy_expr_context = PersistentExpressionContext(state)
     loopy_expr = result.to_loopy_expression(indices, loopy_expr_context)
 
-    from mpi4py import MPI
-    rank = MPI.COMM_WORLD.rank
-
-    if rank == 1:
-        max_depth = 0
-
-        def rec_get_array_info(expr, depth=0):
-            if depth < max_depth:
-                from pytato.array import Reshape, IndexLambda
-                if isinstance(expr, Reshape):
-                    return rec_get_array_info(expr.array, depth=depth+1)
-                elif isinstance(expr, IndexLambda):
-                    for ary in expr.bindings.values():
-                        return rec_get_array_info(ary, depth=depth+1)
-
-            from pytato.analysis import get_num_nodes
-            nnodes = get_num_nodes(expr)
-            tb_tag = next(iter(expr.non_equality_tags))
-            print(f"add_store, {rank}: {type(expr)=}, {nnodes=}, {tb_tag=}")
-
-        loopy_expr_size = len(str(loopy_expr))
-        if loopy_expr_size > 1000:
-            print(f"add_store, {rank}: {type(result)=}")
-            # print(f"add_store, {rank}: {str(loopy_expr)=}")
-            untagged_expr = expr.without_tags(ImplStored(), verify_existence=False)
-            from pytato.transform import SelfComputeGatherer
-            scg = SelfComputeGatherer()
-            self_compute_subexprs = scg(untagged_expr)
-            n_self_compute = len(self_compute_subexprs)
-            from pytato.analysis import get_nusers
-            subexpr_to_nusers = get_nusers(untagged_expr)
-            for subexpr in self_compute_subexprs:
-                nusers = subexpr_to_nusers[subexpr]
-                n_subexpr_self_compute = len(scg(subexpr))
-                if nusers > 1 and n_subexpr_self_compute > 1 and nusers*n_subexpr_self_compute > 20:
-                    tb_tag = next(iter(subexpr.non_equality_tags))
-                    print(f"add_store, {rank}: {nusers=}, {n_subexpr_self_compute=}, {tb_tag=}")
-            from pytato.analysis import collect_materialized_nodes
-            materialized_subexprs = collect_materialized_nodes(untagged_expr)
-            nmaterialized = len(materialized_subexprs)
-            print(f"add_store, {rank}: found large expr {name=}, {loopy_expr_size=}, {n_self_compute=}, {nmaterialized=}")
-            # for materialized_subexpr in materialized_subexprs:
-            #     untagged_materialized_subexpr = materialized_subexpr.without_tags(ImplStored(), verify_existence=False)
-            #     n_self_compute = len(scg(untagged_materialized_subexpr))
-            #     print(f"add_store, {rank}: materialized subexpr {n_self_compute=}")
-            rec_get_array_info(expr)
-            # raise AssertionError
-
     # Make the instruction
     from loopy.kernel.instruction import make_assignment
     if indices:
@@ -1165,9 +1117,6 @@ def generate_loopy(result: Array | DictOfNamedArrays | dict[str, Array],
     if not cg_mapper.has_loopy_call:
         t_unit = lp.set_options(t_unit,
                                 enforce_array_accesses_within_bounds="no_check")
-
-    knl = t_unit.default_entrypoint
-    print(f"Binding kernel '{knl.name}' with {len(knl.instructions)} statements.")
 
     return target.bind_program(
             program=t_unit,
