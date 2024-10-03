@@ -105,7 +105,9 @@ __doc__ = """
 .. autoclass:: Mapper
 .. autoclass:: CachedMapperCache
 .. autoclass:: CachedMapper
+.. autoclass:: TransformMapperCache
 .. autoclass:: TransformMapper
+.. autoclass:: TransformMapperWithExtraArgsCache
 .. autoclass:: TransformMapperWithExtraArgs
 .. autoclass:: CopyMapper
 .. autoclass:: CopyMapperWithExtraArgs
