@@ -90,7 +90,7 @@ from pytato.tags import (
 )
 from pytato.transform import (
     ArrayOrNames,
-    CachedMapper,
+    CachedMapperWithExtraArgs,
     CachedWalkMapper,
     CombineMapper,
     CopyMapper,
@@ -490,10 +490,8 @@ class _ScalarExprConcatabilityMapper(scalar_expr.CombineMapper):
         iaxis-axis would be sound only if the binding which is being indexed
         into is same for all the expressions to be concatenated.
     """
-    def __init__(
-            self, iaxis: int, is_length_1: bool, allow_indirect_addr: bool) -> None:
+    def __init__(self, iaxis: int, allow_indirect_addr: bool) -> None:
         self.iaxis = iaxis
-        self.is_length_1 = is_length_1
         self.allow_indirect_addr = allow_indirect_addr
         super().__init__()
 
@@ -542,17 +540,11 @@ class _ScalarExprConcatabilityMapper(scalar_expr.CombineMapper):
                         # case unless the indexee is the same for the
                         # expression graphs being concatenated.
                         pass
-                # FIXME: indent?
                 rec_indices.append(rec_idx)
 
         combined_rec_indices = dict(self.combine(rec_indices))
 
-        # If iaxis has length 1, the index expression might get dropped and
-        # replaced with 0. If this happens, the code above won't detect the
-        # concatenatability correctly. This can be seen in the grudge wave example
-        # (it occurs intermittently because the code only looks at the first call
-        # site, which makes it dependent on set order). This appears to fix it
-        if not self.is_length_1 and name not in combined_rec_indices:
+        if name not in combined_rec_indices:
             combined_rec_indices[name] = ConcatableIfConstant()
 
         return immutabledict(combined_rec_indices)
@@ -562,16 +554,14 @@ class _ScalarExprConcatabilityMapper(scalar_expr.CombineMapper):
 def _get_binding_to_concatenatability_scalar_expr(
         expr: scalar_expr.ScalarExpression,
         iaxis: int,
-        is_length_1: bool,
         allow_indirect_addr: bool) -> Mapping[str, Concatenatability]:
-    mapper = _ScalarExprConcatabilityMapper(iaxis, is_length_1, allow_indirect_addr)
+    mapper = _ScalarExprConcatabilityMapper(iaxis, allow_indirect_addr)
     return mapper(expr)  # type: ignore[no-any-return]
 
 
 
 def _get_binding_to_concatenatability(expr: scalar_expr.ScalarExpression,
                                       iaxis: int,
-                                      is_length_1: bool,
                                       allow_indirect_addr: bool,
                                       ) -> Mapping[str, Concatenatability]:
     """
@@ -582,7 +572,7 @@ def _get_binding_to_concatenatability(expr: scalar_expr.ScalarExpression,
         return {}
 
     return _get_binding_to_concatenatability_scalar_expr(
-        expr, iaxis, is_length_1, allow_indirect_addr)
+        expr, iaxis, allow_indirect_addr)
 
 
 def _combine_input_accs(
@@ -781,7 +771,8 @@ def _combine_named_result_accs_exhaustive(
                                           immutabledict(pl_concatabilities))
 
 
-class _InputConcatabilityGetter(CachedMapper[ArrayOrNames, FunctionDefinition]):
+class _InputConcatabilityGetter(
+        CachedMapperWithExtraArgs[ArrayOrNames, FunctionDefinition]):
     """
     Maps :class:`pytato.array.Array` expressions to
     :class:`_InputConcatenatabilityGetterAcc` that summarizes constraints
@@ -789,8 +780,11 @@ class _InputConcatabilityGetter(CachedMapper[ArrayOrNames, FunctionDefinition]):
     expression's concatenatability.
     """
 
-    def _map_input_arg_base(self, expr: InputArgumentBase
-                            ) -> _InputConcatabilityGetterAcc:
+    def _map_input_arg_base(
+            self,
+            expr: InputArgumentBase,
+            *exprs_from_other_calls: InputArgumentBase,
+            ) -> _InputConcatabilityGetterAcc:
         input_concatenatability: Dict[Concatenatability,
                                       Map[InputArgumentBase,
                                           Concatenatability]] = {}
@@ -807,27 +801,44 @@ class _InputConcatabilityGetter(CachedMapper[ArrayOrNames, FunctionDefinition]):
     map_placeholder = _map_input_arg_base
     map_data_wrapper = _map_input_arg_base
 
-    def _map_index_lambda_like(self, expr: Array,
-                               allow_indirect_addr: bool
-                               ) -> _InputConcatabilityGetterAcc:
+    def _map_index_lambda_like(
+            self,
+            expr: Array,
+            *exprs_from_other_calls: Array,
+            allow_indirect_addr: bool) -> _InputConcatabilityGetterAcc:
         expr = to_index_lambda(expr)
-        input_accs = tuple(self.rec(expr.bindings[name])
-                           for name in sorted(expr.bindings.keys()))
+        exprs_from_other_calls = tuple(
+            to_index_lambda(ary) for ary in exprs_from_other_calls)
+
+        input_accs = tuple(
+            self.rec(
+                expr.bindings[name],
+                *[
+                    ary.bindings[name]
+                    for ary in exprs_from_other_calls])
+            for name in sorted(expr.bindings.keys()))
         expr_concat_to_input_concats: Dict[Concatenatability,
                                            Tuple[Concatenatability, ...]] = {}
 
         for iaxis in range(expr.ndim):
-            try:
-                is_length_1 = expr.shape[iaxis] == 1
-                bnd_name_to_concat = _get_binding_to_concatenatability(
-                    expr.expr, iaxis, is_length_1, allow_indirect_addr)
-                expr_concat_to_input_concats[ConcatableAlongAxis(iaxis)] = (
-                    tuple(concat
-                          for _, concat in sorted(bnd_name_to_concat.items(),
-                                                  key=lambda x: x[0]))
-                )
-            except NonConcatableExpression:
-                pass
+            for ary in (expr,) + exprs_from_other_calls:
+                # If the array has length 1 along this axis, the index may have been
+                # dropped from the scalar expression, in which case
+                # _get_binding_to_concatenatability will fail to determine the
+                # concatenatability. If that happens, we have to look at the other
+                # expressions in the hope that one of them has a non-1 length
+                if ary.shape[iaxis] == 1:
+                    continue
+                try:
+                    bnd_name_to_concat = _get_binding_to_concatenatability(
+                        ary.expr, iaxis, allow_indirect_addr)
+                    expr_concat_to_input_concats[ConcatableAlongAxis(iaxis)] = (
+                        tuple(concat
+                              for _, concat in sorted(bnd_name_to_concat.items(),
+                                                      key=lambda x: x[0]))
+                    )
+                except NonConcatableExpression:
+                    break
 
         expr_concat_to_input_concats[ConcatableIfConstant()] = tuple(
             ConcatableIfConstant() for _ in expr.bindings)
@@ -856,8 +867,16 @@ class _InputConcatabilityGetter(CachedMapper[ArrayOrNames, FunctionDefinition]):
     map_non_contiguous_advanced_index = partialmethod(_map_index_lambda_like,
                                                        allow_indirect_addr=True)
 
-    def map_named_call_result(self, expr: NamedCallResult
-                              ) -> _InputConcatabilityGetterAcc:
+    def map_named_call_result(
+            self,
+            expr: NamedCallResult,
+            *exprs_from_other_calls: NamedCallResult,
+            ) -> _InputConcatabilityGetterAcc:
+        raise NotImplementedError("nested functions aren't supported.")
+
+        # FIXME: Update the code below to work after changing
+        # _InputConcatabilityGetter to look at all function calls instead of just
+        # the template call
         assert isinstance(expr._container, Call)
         valid_concatenatabilities = _get_valid_concatenatability_constraints_simple(
             expr._container.function)
@@ -929,8 +948,11 @@ class _InputConcatabilityGetter(CachedMapper[ArrayOrNames, FunctionDefinition]):
         return _InputConcatabilityGetterAcc(frozenset(seen_inputs),
                                             immutabledict(input_concatenatabilities))
 
-    def map_loopy_call_result(self, expr: "LoopyCallResult"
-                              ) -> _InputConcatabilityGetterAcc:
+    def map_loopy_call_result(
+            self,
+            expr: "LoopyCallResult",
+            *exprs_from_other_calls: "LoopyCallResult",
+            ) -> _InputConcatabilityGetterAcc:
         raise ValueError("Loopy Calls are illegal to concatenate. Maybe"
                          " rewrite the operation as array operations?")
 
@@ -1068,10 +1090,11 @@ class _ConcatabilityCollector(CachedWalkMapper):
                 (idx_lambda, ) + idx_lambdas_from_other_calls,
                 ["dtype", "expr"],
                 concatenatability.axis)
-            is_length_1 = idx_lambda.shape[concatenatability.axis] == 1
-            bnd_name_to_concat = _get_binding_to_concatenatability(
-                idx_lambda.expr, concatenatability.axis, is_length_1,
-                allow_indirect_addr)
+            for ary in (idx_lambda,) + idx_lambdas_from_other_calls:
+                if ary.shape[concatenatability.axis] == 1:
+                    continue
+                bnd_name_to_concat = _get_binding_to_concatenatability(
+                    idx_lambda.expr, concatenatability.axis, allow_indirect_addr)
             for bnd_name, bnd_concat in bnd_name_to_concat.items():
                 self.rec(idx_lambda.bindings[bnd_name], bnd_concat,
                          tuple(ary.bindings[bnd_name]
@@ -1596,10 +1619,13 @@ class _FunctionConcatenator(TransformMapperWithExtraArgs):
 
 @memoize_on_first_arg
 def _get_valid_concatenatability_constraints_simple(
-        fn: FunctionDefinition) -> Tuple[FunctionConcatenability]:
+        template_call: Call, *other_calls: Call) -> Tuple[FunctionConcatenability]:
+    template_fn = template_call.function
     mapper = _InputConcatabilityGetter()
-    output_accs = {name: mapper(output)
-                   for name, output in fn.returns.items()}
+    output_accs = {
+        name: mapper(
+            *[cs.function.returns[name] for cs in (template_call,) + other_calls])
+        for name in template_fn.returns}
 
     return _combine_named_result_accs_simple(output_accs)
 
@@ -1627,9 +1653,8 @@ def _get_ary_to_concatenatabilities(call_sites: Sequence[Call],
     expression graph of *call_sites*'s function body if they traverse identical
     function bodies.
     """
-    fn_body = next(iter(call_sites)).function
-
-    fn_concatenatabilities = _get_valid_concatenatability_constraints_simple(fn_body)
+    fn_concatenatabilities = \
+        _get_valid_concatenatability_constraints_simple(*call_sites)
 
     for fn_concatenatability in fn_concatenatabilities:
         collector = _ConcatabilityCollector(current_stack=())
