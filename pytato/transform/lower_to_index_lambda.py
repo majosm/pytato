@@ -70,6 +70,37 @@ def _get_reshaped_indices(expr: Reshape) -> tuple[ScalarExpression, ...]:
         raise NotImplementedError("Order expected to be 'C' or 'F'",
                                   f" found {expr.order}")
 
+    non1_shape = []
+    for axis_len in expr.shape:
+        assert isinstance(axis_len, INT_CLASSES)
+        if axis_len > 1:
+            non1_shape.append(axis_len)
+    non1_shape = tuple(non1_shape)
+
+    old_non1_shape = []
+    for axis_len in expr.array.shape:
+        assert isinstance(axis_len, INT_CLASSES)
+        if axis_len > 1:
+            old_non1_shape.append(axis_len)
+    old_non1_shape = tuple(old_non1_shape)
+
+    if non1_shape == old_non1_shape:
+        non1_axes = tuple(
+            iaxis for iaxis in range(len(expr.shape))
+            if expr.shape[iaxis] > 1)
+        old_non1_axes = tuple(
+            iaxis for iaxis in range(len(expr.array.shape))
+            if expr.array.shape[iaxis] > 1)
+        old_iaxis_to_iaxis = {
+            old_iaxis: iaxis
+            for old_iaxis, iaxis in zip(
+                old_non1_axes, non1_axes)}
+        return tuple(
+            prim.Variable(f"_{old_iaxis_to_iaxis[old_iaxis]}")
+            if old_iaxis in old_iaxis_to_iaxis
+            else 0
+            for old_iaxis in range(len(expr.array.shape)))
+
     if expr.order == "C":
         newstrides: list[IntegralT] = [1]  # reshaped array strides
         for new_axis_len in reversed(expr.shape[1:]):
