@@ -1890,7 +1890,7 @@ def concatenate_calls(expr: ArrayOrNames,
         # FIXME: this doesn't work; need to create/execute batches one at a time,
         # then repeat the steps above to collect the updated call sites after
         # concatenating the previous batch
-        for call_sites in call_site_batches:
+        for ibatch, call_sites in enumerate(call_site_batches):
             if len(call_sites) <= 1:
                 if err_if_no_calls:
                     raise ValueError(
@@ -1903,6 +1903,10 @@ def concatenate_calls(expr: ArrayOrNames,
                 else:
                     pass
                 continue
+
+            print(
+                f"Concatenating function with ID '{fid}' (batch {ibatch} of "
+                f"{len(call_site_batches)}).")
 
             old_expr_to_new_expr_map = _get_replacement_map_post_concatenating(
                     [cs.call for cs in call_sites],
