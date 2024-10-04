@@ -147,9 +147,11 @@ class Inliner(CopyMapper):
     """
     Primary mapper for :func:`inline_calls`.
     """
+    _FunctionCacheT: TypeAlias = CopyMapper._FunctionCacheT
+
     def __init__(
             self,
-            _function_cache: dict[Hashable, CachedMapperFunctionT] | None = None
+            _function_cache: _FunctionCacheT | None = None
             ) -> None:
         # Must disable collision/duplication checking because we're combining
         # expressions that were previously in two different call stack frames
