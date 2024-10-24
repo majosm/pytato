@@ -1361,7 +1361,6 @@ class _FunctionConcatenator(TransformMapperWithExtraArgs):
             return Einsum(expr.access_descriptors,
                           tuple(new_args),
                           expr.redn_axis_to_redn_descr,
-                          expr.index_to_access_descr,
                           tags=expr.tags,
                           axes=expr.axes,
                           non_equality_tags=expr.non_equality_tags)
