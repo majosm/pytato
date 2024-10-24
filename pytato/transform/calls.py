@@ -712,7 +712,9 @@ def _combine_named_result_accs_simple(
                     i_concat_axis in acc.input_concatability
                     for acc in named_result_accs.values())
                 and all(
-                    i_input_axis == i_concat_axis
+                    (
+                        i_input_axis == i_concat_axis
+                        or isinstance(i_input_axis, ConcatableIfConstant))
                     for acc in named_result_accs.values()
                     for i_input_axis in (
                         acc.input_concatability[i_concat_axis].values()))):
