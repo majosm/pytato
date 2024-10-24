@@ -345,10 +345,12 @@ class SimilarityComparer:
     """
     def __init__(
             self,
-            compare_tags: bool = True) -> None:
+            compare_tags: bool = True,
+            err_on_not_similar: bool = False) -> None:
         # Uses the same cache for both arrays and functions
         self._cache: dict[tuple[int, int], bool] = {}
         self.compare_tags = compare_tags
+        self.err_on_not_similar = err_on_not_similar
 
     def rec(self, expr1: ArrayOrNames | FunctionDefinition, expr2: Any) -> bool:
         cache_key = id(expr1), id(expr2)
@@ -371,6 +373,9 @@ class SimilarityComparer:
                     result = self.map_foreign(expr1, expr2)
             else:
                 result = (expr1 is expr2) or method(expr1, expr2)
+
+            if self.err_on_not_similar and not result:
+                raise ValueError(f"Not similar, {type(expr1).__name__}, {type(expr2).__name__}")
 
             self._cache[cache_key] = result
             return result
