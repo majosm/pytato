@@ -2089,20 +2089,20 @@ def precompute_subexpressions(
                 f"{type(subexpr).__name__} with {nnodes} nodes.")
     # FIXME: Assemble into DictOfNamedArrays and evaluate all in one go? Might be a
     # lot of overhead otherwise
-    dedup = Deduplicator()
-    subexpr_to_evaled_subexpr = {
-        subexpr: dedup(eval_func(subexpr))
-        for subexpr in precomputable_subexprs}
-    return _PrecomputableSubexpressionReplacer(subexpr_to_evaled_subexpr)(expr)
-    # from pytato.array import make_dict_of_named_arrays
-    # precomputable_subexprs_dict = make_dict_of_named_arrays({
-    #     f"_{i}": subexpr
-    #     for i, subexpr in enumerate(precomputable_subexprs)})
-    # evaled_subexprs_dict = eval_func(precomputable_subexprs_dict)
+    # dedup = Deduplicator()
     # subexpr_to_evaled_subexpr = {
-    #     subexpr: evaled_subexprs_dict._data[f"_{i}"]
-    #     for i, subexpr in enumerate(precomputable_subexprs)}
+    #     subexpr: dedup(eval_func(subexpr))
+    #     for subexpr in precomputable_subexprs}
     # return _PrecomputableSubexpressionReplacer(subexpr_to_evaled_subexpr)(expr)
+    from pytools.obj_array import make_obj_array
+    precomputable_subexprs_ary = make_obj_array(list(precomputable_subexprs))
+    evaled_subexprs_ary = eval_func(precomputable_subexprs_ary)
+    subexpr_to_evaled_subexpr = {
+        subexpr: evaled_subexpr
+        for subexpr, evaled_subexpr in zip(
+            precomputable_subexprs_ary,
+            evaled_subexprs_ary)}
+    return _PrecomputableSubexpressionReplacer(subexpr_to_evaled_subexpr)(expr)
 
 # }}}
 
