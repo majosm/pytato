@@ -706,7 +706,14 @@ def _combine_named_result_accs_simple(
             for acc in named_result_accs.values()],
         frozenset())
 
+    # print(f"{candidate_concat_axes=}")
+
     for i_concat_axis in candidate_concat_axes:
+        # if isinstance(i_concat_axis, ConcatableAlongAxis) and i_concat_axis.axis == 0:
+        #     for acc in named_result_accs.values():
+        #         for ary, concat in acc.input_concatability[i_concat_axis].items():
+        #             print(f"{type(ary).__name__=}, {ary.name=}, {ary.shape=}, {id(ary)=}, {concat=}")
+        #         print("")
         if (
                 all(
                     i_concat_axis in acc.input_concatability
@@ -840,6 +847,9 @@ class _InputConcatabilityGetter(
                                                       key=lambda x: x[0]))
                     )
                 except NonConcatableExpression:
+                    # print(f"{iaxis=}")
+                    # print(f"{ary.expr=}")
+                    # print(f"{ary.shape=}")
                     break
 
         expr_concat_to_input_concats[ConcatableIfConstant()] = tuple(
@@ -1888,6 +1898,12 @@ def concatenate_calls(expr: ArrayOrNames,
                 cs for cs in unbatched_call_sites
                 if not call_site_to_dep_call_sites[cs] & unbatched_call_sites})
 
+            from mpi4py import MPI
+            rank = MPI.COMM_WORLD.rank
+
+            if fid.identifier == "_make_fluid_state":
+                print(f"{rank}: {len(ready_call_sites)=}")
+
             if not ready_call_sites:
                 raise ValueError("Found cycle in call site dependency graph.")
 
@@ -1898,7 +1914,28 @@ def concatenate_calls(expr: ArrayOrNames,
             similarity_comparer = SimilarityComparer(
                 # FIXME? Without this, sees different PrefixNamed, FEMEinsumTag and
                 # decides that function definitions are different
-                compare_tags=False)
+                compare_tags=False,
+                err_on_not_similar=(fid.identifier == "_make_fluid_state"))
+
+            if fid.identifier == "_make_fluid_state":
+                for cs in ready_call_sites:
+                    same_outputs = (
+                        frozenset(cs.call.function.returns.keys())
+                        == frozenset(template_fn.returns.keys()))
+                    similar = all(
+                        similarity_comparer(
+                            cs.call.function.returns[name],
+                            template_fn.returns[name])
+                        for name in template_fn.returns)
+                    same_stack = (cs.stack == template_call_site.stack)
+                    print(f"{rank}:    {same_outputs=}, {similar=}, {same_stack=}")
+                    # if not similar:
+                    #     for name in template_fn.returns:
+                    #         from pytato.analysis import get_num_nodes
+                    #         nnodes_template = get_num_nodes(template_fn.returns[name])
+                    #         nnodes_other = get_num_nodes(cs.call.function.returns[name])
+                    #         print(f"{rank}:        {name=}, {nnodes_template=}, {nnodes_other=}")
+
             similar_call_sites = frozenset({
                 cs for cs in ready_call_sites
                 if (
@@ -1912,6 +1949,9 @@ def concatenate_calls(expr: ArrayOrNames,
                         for name in template_fn.returns)
                     and cs.stack == template_call_site.stack)})
 
+            if fid.identifier == "_make_fluid_state":
+                print(f"{rank}: {len(similar_call_sites)=}")
+
             if not similar_call_sites:
                 raise ValueError("Failed to find similar call sites to concatenate.")
 
@@ -1922,6 +1962,9 @@ def concatenate_calls(expr: ArrayOrNames,
         # then repeat the steps above to collect the updated call sites after
         # concatenating the previous batch
         for ibatch, call_sites in enumerate(call_site_batches):
+            from mpi4py import MPI
+            rank = MPI.COMM_WORLD.rank
+
             template_fn = next(iter(call_sites)).call.function
 
             # FIXME: Can't currently call get_num_nodes on a function definition
@@ -1931,7 +1974,7 @@ def concatenate_calls(expr: ArrayOrNames,
             nnodes = get_num_nodes(fn_body)
 
             print(
-                f"Concatenating function '{fid}' (batch {ibatch+1} of "
+                f"{rank}: Concatenating function '{fid}' (batch {ibatch+1} of "
                 f"{len(call_site_batches)}: {nnodes} nodes, {len(call_sites)} "
                 "call sites).")
 
