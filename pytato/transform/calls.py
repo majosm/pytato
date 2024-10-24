@@ -1895,7 +1895,10 @@ def concatenate_calls(expr: ArrayOrNames,
             template_fn = template_call_site.call.function
 
             from pytato.equality import SimilarityComparer
-            similarity_comparer = SimilarityComparer()
+            similarity_comparer = SimilarityComparer(
+                # FIXME? Without this, sees different PrefixNamed, FEMEinsumTag and
+                # decides that function definitions are different
+                compare_tags=False)
             similar_call_sites = frozenset({
                 cs for cs in ready_call_sites
                 if (
