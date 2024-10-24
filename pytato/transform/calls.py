@@ -1919,6 +1919,19 @@ def concatenate_calls(expr: ArrayOrNames,
         # then repeat the steps above to collect the updated call sites after
         # concatenating the previous batch
         for ibatch, call_sites in enumerate(call_site_batches):
+            template_fn = next(iter(call_sites)).call.function
+
+            # FIXME: Can't currently call get_num_nodes on a function definition
+            from pytato.array import make_dict_of_named_arrays
+            from pytato.analysis import get_num_nodes
+            fn_body = make_dict_of_named_arrays(template_fn.returns)
+            nnodes = get_num_nodes(fn_body)
+
+            print(
+                f"Concatenating function '{fid}' (batch {ibatch+1} of "
+                f"{len(call_site_batches)}: {nnodes} nodes, {len(call_sites)} "
+                "call sites).")
+
             if len(call_sites) <= 1:
                 if err_if_no_calls:
                     raise ValueError(
@@ -1931,10 +1944,6 @@ def concatenate_calls(expr: ArrayOrNames,
                 else:
                     pass
                 continue
-
-            print(
-                f"Concatenating function with ID '{fid}' (batch {ibatch} of "
-                f"{len(call_site_batches)}).")
 
             old_expr_to_new_expr_map = _get_replacement_map_post_concatenating(
                     [cs.call for cs in call_sites],
