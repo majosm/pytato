@@ -425,10 +425,13 @@ def _have_same_axis_length_except(arrays: Collection[Array],
     *iaxis*-axis.
     """
     ndim = next(iter(arrays)).ndim
-    return (all(ary.ndim == ndim for ary in arrays)
+    result = (all(ary.ndim == ndim for ary in arrays)
             and all(_have_same_axis_length(arrays, idim)
                     for idim in range(ndim)
                     if idim != iaxis))
+    if not result:
+        print(f"{iaxis=}, {[ary.shape for ary in arrays]=}")
+    return result
 
 
 @attrs.define(frozen=True)
@@ -993,6 +996,11 @@ def _verify_arrays_can_be_concated_along_axis(
 
 def _verify_arrays_same(arrays: Collection[Array]) -> None:
     if len(set(arrays)) != 1:
+        from pytato.equality import SimilarityComparer
+        comp = SimilarityComparer(err_on_not_similar=True)
+        template_ary = next(iter(arrays))
+        for other_ary in arrays:
+            comp(template_ary, other_ary)
         raise _InvalidConcatenatability("Cannot be concatenated as arrays across "
                                         "functions are not the same.")
 
@@ -1672,21 +1680,30 @@ def _get_ary_to_concatenatabilities(call_sites: Sequence[Call],
 
         # select a template call site to start the traversal.
         template_call, *other_calls = call_sites
+        template_fn = template_call.function
+
+        from pytato.tags import FunctionIdentifier
+        fid = next(iter(template_fn.tags_of_type(FunctionIdentifier)))
 
         try:
             # verify the constraints on parameters are satisfied
             for name, input_concat in (fn_concatenatability
                                        .input_to_concatenatability
                                        .items()):
-                if isinstance(input_concat, ConcatableIfConstant):
-                    _verify_arrays_same([cs.bindings[name] for cs in call_sites])
-                elif isinstance(input_concat, ConcatableAlongAxis):
-                    _verify_arrays_can_be_concated_along_axis(
-                        [cs.bindings[name] for cs in call_sites],
-                        [],
-                        input_concat.axis)
-                else:
-                    raise NotImplementedError(type(input_concat))
+                try:
+                    if isinstance(input_concat, ConcatableIfConstant):
+                        _verify_arrays_same([cs.bindings[name] for cs in call_sites])
+                    elif isinstance(input_concat, ConcatableAlongAxis):
+                        _verify_arrays_can_be_concated_along_axis(
+                            [cs.bindings[name] for cs in call_sites],
+                            [],
+                            input_concat.axis)
+                    else:
+                        raise NotImplementedError(type(input_concat))
+                except _InvalidConcatenatability:
+                    if input_concat.axis == 0:
+                        print(f"Invalid concatenatability for binding '{name}' of '{fid.identifier}'")
+                    raise
 
             # verify the constraints on function bodies are satisfied
             for name, output_concat in (fn_concatenatability
@@ -1929,6 +1946,8 @@ def concatenate_calls(expr: ArrayOrNames,
                         for name in template_fn.returns)
                     same_stack = (cs.stack == template_call_site.stack)
                     print(f"{rank}:    {same_outputs=}, {similar=}, {same_stack=}")
+                    print(f"{rank}:    {[template_fn.returns[name].shape for name in template_fn.returns]=}")
+                    print(f"{rank}:    {[cs.call.function.returns[name].shape for name in template_fn.returns]=}")
                     # if not similar:
                     #     for name in template_fn.returns:
                     #         from pytato.analysis import get_num_nodes
