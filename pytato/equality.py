@@ -379,7 +379,7 @@ class SimilarityComparer:
                 result = (expr1 is expr2) or method(expr1, expr2)
 
             if self.err_on_not_similar and not result:
-                raise ValueError(f"Not similar, {type(expr1).__name__}, {type(expr2).__name__}, {expr1.shape=}, {expr2.shape=}")
+                raise ValueError(f"Not similar, {type(expr1).__name__}, {type(expr2).__name__}")
 
             self._cache[cache_key] = result
             return result
