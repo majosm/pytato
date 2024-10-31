@@ -991,7 +991,7 @@ def _verify_arrays_can_be_concated_along_axis(
     for field in fields_that_must_be_same:
         if len({getattr(ary, field) for ary in arrays}) != 1:
             raise _InvalidConcatenatability(
-                "Cannot be concatenate the calls; required fields are not the same.")
+                "Cannot concatenate the calls; required fields are not the same.")
 
 
 def _verify_arrays_same(arrays: Collection[Array]) -> None:
