@@ -48,6 +48,7 @@ from pytato.array import (
     Stack,
 )
 from pytato.function import Call, FunctionDefinition, NamedCallResult
+from pytato.tags import Tag
 
 
 if TYPE_CHECKING:
@@ -345,11 +346,14 @@ class SimilarityComparer:
     """
     def __init__(
             self,
-            compare_tags: bool = True,
+            # FIXME: tuple?
+            ignore_tag_types: frozenset(type) | None = None,
             err_on_not_similar: bool = False) -> None:
         # Uses the same cache for both arrays and functions
         self._cache: dict[tuple[int, int], bool] = {}
-        self.compare_tags = compare_tags
+        if ignore_tag_types is None:
+            ignore_tag_types: frozenset(type) = frozenset()
+        self.ignore_tag_types = tuple(ignore_tag_types)
         self.err_on_not_similar = err_on_not_similar
 
     def rec(self, expr1: ArrayOrNames | FunctionDefinition, expr2: Any) -> bool:
@@ -391,19 +395,26 @@ class SimilarityComparer:
     def map_foreign(self, expr1: Any, expr2: Any) -> bool:
         raise NotImplementedError(type(expr1).__name__)
 
+    def _map_tags(self, tags1: frozenset(Tag), tags2: frozenset(Tag)) -> bool:
+        filtered_tags1 = frozenset(
+            tag for tag in tags1 if not isinstance(tag, self.ignore_tag_types))
+        filtered_tags2 = frozenset(
+            tag for tag in tags2 if not isinstance(tag, self.ignore_tag_types))
+        return filtered_tags1 == filtered_tags2
+
     def map_placeholder(self, expr1: Placeholder, expr2: Any) -> bool:
         return (expr1.__class__ is expr2.__class__
                 and expr1.name == expr2.name
                 and len(expr1.shape) == len(expr2.shape)
                 and expr1.dtype == expr2.dtype
-                and (expr1.tags == expr2.tags or not self.compare_tags)
+                and self._map_tags(expr1.tags, expr2.tags)
                 and expr1.axes == expr2.axes
                 )
 
     def map_size_param(self, expr1: SizeParam, expr2: Any) -> bool:
         return (expr1.__class__ is expr2.__class__
                 and expr1.name == expr2.name
-                and (expr1.tags == expr2.tags or not self.compare_tags)
+                and self._map_tags(expr1.tags, expr2.tags)
                 and expr1.axes == expr2.axes
                 )
 
@@ -416,7 +427,7 @@ class SimilarityComparer:
                         for dim1, dim2 in zip(expr1.shape, expr2.shape)
                         if isinstance(dim1, Array))
                 and expr1.dtype == expr2.dtype
-                and (expr1.tags == expr2.tags or not self.compare_tags)
+                and self._map_tags(expr1.tags, expr2.tags)
                 and expr1.axes == expr2.axes
                 )
 
@@ -431,7 +442,7 @@ class SimilarityComparer:
                 and all(self.rec(dim1, dim2)
                         for dim1, dim2 in zip(expr1.shape, expr2.shape)
                         if isinstance(dim1, Array))
-                and (expr1.tags == expr2.tags or not self.compare_tags)
+                and self._map_tags(expr1.tags, expr2.tags)
                 and expr1.axes == expr2.axes
                 and expr1.var_to_reduction_descr == expr2.var_to_reduction_descr
                 )
@@ -442,7 +453,7 @@ class SimilarityComparer:
                 and len(expr1.arrays) == len(expr2.arrays)
                 and all(self.rec(ary1, ary2)
                         for ary1, ary2 in zip(expr1.arrays, expr2.arrays))
-                and (expr1.tags == expr2.tags or not self.compare_tags)
+                and self._map_tags(expr1.tags, expr2.tags)
                 and expr1.axes == expr2.axes
                 )
 
@@ -452,7 +463,7 @@ class SimilarityComparer:
                 and len(expr1.arrays) == len(expr2.arrays)
                 and all(self.rec(ary1, ary2)
                         for ary1, ary2 in zip(expr1.arrays, expr2.arrays))
-                and (expr1.tags == expr2.tags or not self.compare_tags)
+                and self._map_tags(expr1.tags, expr2.tags)
                 and expr1.axes == expr2.axes
                 )
 
@@ -461,7 +472,7 @@ class SimilarityComparer:
                 and expr1.axis == expr2.axis
                 and expr1.shift == expr2.shift
                 and self.rec(expr1.array, expr2.array)
-                and (expr1.tags == expr2.tags or not self.compare_tags)
+                and self._map_tags(expr1.tags, expr2.tags)
                 and expr1.axes == expr2.axes
                 )
 
@@ -469,7 +480,7 @@ class SimilarityComparer:
         return (expr1.__class__ is expr2.__class__
                 and expr1.axis_permutation == expr2.axis_permutation
                 and self.rec(expr1.array, expr2.array)
-                and (expr1.tags == expr2.tags or not self.compare_tags)
+                and self._map_tags(expr1.tags, expr2.tags)
                 and expr1.axes == expr2.axes
                 )
 
@@ -482,7 +493,7 @@ class SimilarityComparer:
                             and isinstance(idx2, Array))
                         else idx1 == idx2
                         for idx1, idx2 in zip(expr1.indices, expr2.indices))
-                and (expr1.tags == expr2.tags or not self.compare_tags)
+                and self._map_tags(expr1.tags, expr2.tags)
                 and expr1.axes == expr2.axes
                 )
 
@@ -505,7 +516,7 @@ class SimilarityComparer:
         return (expr1.__class__ is expr2.__class__
                 and len(expr1.newshape) == len(expr2.newshape)
                 and self.rec(expr1.array, expr2.array)
-                and (expr1.tags == expr2.tags or not self.compare_tags)
+                and self._map_tags(expr1.tags, expr2.tags)
                 and expr1.axes == expr2.axes
                 )
 
@@ -515,7 +526,7 @@ class SimilarityComparer:
                 and all(self.rec(ary1, ary2)
                         for ary1, ary2 in zip(expr1.args,
                                               expr2.args))
-                and (expr1.tags == expr2.tags or not self.compare_tags)
+                and self._map_tags(expr1.tags, expr2.tags)
                 and expr1.axes == expr2.axes
                 and expr1.redn_axis_to_redn_descr == expr2.redn_axis_to_redn_descr
                 )
@@ -523,7 +534,7 @@ class SimilarityComparer:
     def map_named_array(self, expr1: NamedArray, expr2: Any) -> bool:
         return (expr1.__class__ is expr2.__class__
                 and self.rec(expr1._container, expr2._container)
-                and (expr1.tags == expr2.tags or not self.compare_tags)
+                and self._map_tags(expr1.tags, expr2.tags)
                 and expr1.axes == expr2.axes
                 and expr1.name == expr2.name)
 
@@ -537,13 +548,13 @@ class SimilarityComparer:
                         if isinstance(bnd, Array)
                         else bnd == expr2.bindings[name]
                         for name, bnd in expr1.bindings.items())
-                and (expr1.tags == expr2.tags or not self.compare_tags)
+                and self._map_tags(expr1.tags, expr2.tags)
                 )
 
     def map_loopy_call_result(self, expr1: LoopyCallResult, expr2: Any) -> bool:
         return (expr1.__class__ is expr2.__class__
                 and self.rec(expr1._container, expr2._container)
-                and (expr1.tags == expr2.tags or not self.compare_tags)
+                and self._map_tags(expr1.tags, expr2.tags)
                 and expr1.axes == expr2.axes
                 and expr1.name == expr2.name)
 
@@ -552,7 +563,7 @@ class SimilarityComparer:
                 and frozenset(expr1._data.keys()) == frozenset(expr2._data.keys())
                 and all(self.rec(expr1._data[name], expr2._data[name])
                         for name in expr1._data)
-                and (expr1.tags == expr2.tags or not self.compare_tags)
+                and self._map_tags(expr1.tags, expr2.tags)
                 )
 
     def map_distributed_send_ref_holder(
@@ -563,7 +574,7 @@ class SimilarityComparer:
                 and expr1.send.dest_rank == expr2.send.dest_rank
                 and expr1.send.comm_tag == expr2.send.comm_tag
                 and expr1.send.tags == expr2.send.tags
-                and (expr1.tags == expr2.tags or not self.compare_tags)
+                and self._map_tags(expr1.tags, expr2.tags)
                 )
 
     def map_distributed_recv(self, expr1: DistributedRecv, expr2: Any) -> bool:
@@ -572,7 +583,7 @@ class SimilarityComparer:
                 and expr1.comm_tag == expr2.comm_tag
                 and len(expr1.shape) == len(expr2.shape)
                 and expr1.dtype == expr2.dtype
-                and (expr1.tags == expr2.tags or not self.compare_tags)
+                and self._map_tags(expr1.tags, expr2.tags)
                 )
 
     def map_function_definition(self, expr1: FunctionDefinition, expr2: Any
@@ -583,7 +594,7 @@ class SimilarityComparer:
                 and (set(expr1.returns.keys()) == set(expr2.returns.keys()))
                 and all(self.rec(expr1.returns[k], expr2.returns[k])
                         for k in expr1.returns)
-                and (expr1.tags == expr2.tags or not self.compare_tags)
+                and self._map_tags(expr1.tags, expr2.tags)
                 )
 
     def map_call(self, expr1: Call, expr2: Any) -> bool:
@@ -593,7 +604,7 @@ class SimilarityComparer:
                 and all(self.rec(bnd,
                                  expr2.bindings[name])
                         for name, bnd in expr1.bindings.items())
-                and (expr1.tags == expr2.tags or not self.compare_tags)
+                and self._map_tags(expr1.tags, expr2.tags)
                 )
 
     def map_named_call_result(self, expr1: NamedCallResult, expr2: Any) -> bool:
