@@ -1108,8 +1108,14 @@ class _ConcatabilityCollector(CachedWalkMapper):
         elif isinstance(concatenatability, ConcatableAlongAxis):
             _verify_arrays_can_be_concated_along_axis(
                 (idx_lambda, ) + idx_lambdas_from_other_calls,
-                ["dtype", "expr"],
+                ["dtype"],
                 concatenatability.axis)
+            if len({
+                    ary.expr
+                    for ary in (idx_lambda,) + idx_lambdas_from_other_calls
+                    if ary.shape[concatenatability.axis] != 1}) != 1:
+                raise _InvalidConcatenatability(
+                    "Cannot concatenate the calls; required fields are not the same.")
             for ary in (idx_lambda,) + idx_lambdas_from_other_calls:
                 if ary.shape[concatenatability.axis] == 1:
                     continue
