@@ -1864,6 +1864,7 @@ def concatenate_calls(expr: ArrayOrNames,
                       inherit_axes: bool = False,
                       warn_if_no_calls: bool = True,
                       err_if_no_calls: bool = False,
+                      ignore_tag_types: frozenset(type) | None = None,
                       ) -> ArrayOrNames:
     r"""
     Returns a copy of *expr* after concatenating all call-sites ``C`` such that
@@ -1872,6 +1873,9 @@ def concatenate_calls(expr: ArrayOrNames,
     :arg call_site_filter: A callable to select which instances of
         :class:`~pytato.function.Call`\ s must be concatenated.
     """
+    if ignore_tag_types is None:
+        ignore_tag_types: frozenset(type) = frozenset()
+
     call_site_collector = CallSiteDependencyCollector(stack=())
 
     all_call_sites = call_site_collector(expr)
@@ -1935,9 +1939,7 @@ def concatenate_calls(expr: ArrayOrNames,
 
             from pytato.equality import SimilarityComparer
             similarity_comparer = SimilarityComparer(
-                # FIXME? Without this, sees different PrefixNamed, FEMEinsumTag and
-                # decides that function definitions are different
-                compare_tags=False,
+                ignore_tag_types=ignore_tag_types,
                 err_on_not_similar=(fid.identifier == "_make_fluid_state"))
 
             if fid.identifier == "_make_fluid_state":
