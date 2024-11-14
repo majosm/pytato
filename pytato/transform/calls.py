@@ -1272,7 +1272,7 @@ class _FunctionConcatenator(TransformMapperWithExtraArgs):
                  ary_to_concatenatability: Map[ArrayOnStackT, Concatenatability],
                  _function_cache: _FunctionCacheT | None = None,
                  ) -> None:
-        super().__init__(err_on_no_op_duplication=False, _function_cache=_function_cache)
+        super().__init__(_function_cache=_function_cache)
         self.current_stack = current_stack
         self.input_concatenator = input_concatenator
         self.ary_to_concatenatability = ary_to_concatenatability
