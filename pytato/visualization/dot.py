@@ -827,7 +827,7 @@ def get_dot_graph_from_partition(partition: DistributedGraphPartition) -> str:
 
 
 def show_dot_graph(result: str | Array | DictOfNamedArrays | DistributedGraphPartition,
-        **kwargs: Any) -> None:
+        **kwargs: Any) -> str:
     """Show a graph representing the computation of *result* in a browser.
 
     :arg result: Outputs of the computation (cf.
@@ -845,6 +845,6 @@ def show_dot_graph(result: str | Array | DictOfNamedArrays | DistributedGraphPar
         dot_code = get_dot_graph(result)
 
     from pytools.graphviz import show_dot
-    show_dot(dot_code, **kwargs)
+    return show_dot(dot_code, **kwargs)
 
 # vim:fdm=marker
