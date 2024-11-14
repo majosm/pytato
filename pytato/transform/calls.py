@@ -59,6 +59,7 @@ import pymbolic.primitives as prim
 from pytools import memoize_method, memoize_on_first_arg
 
 import pytato.scalar_expr as scalar_expr
+from pytato.analysis import collect_nodes_of_type
 from pytato.array import (
     AbstractResultWithNamedArrays,
     Array,
@@ -84,6 +85,7 @@ from pytato.function import Call, FunctionDefinition, NamedCallResult
 from pytato.tags import (
     ConcatenatedCallInputConcatAxisTag,
     ConcatenatedCallOutputSliceAxisTag,
+    FunctionIdentifier,
     ImplStored,
     InlineCallTag,
     UseInputAxis,
@@ -95,6 +97,7 @@ from pytato.transform import (
     CombineMapper,
     CopyMapper,
     Deduplicator,
+    InputGatherer,
     TransformMapperWithExtraArgs,
     _SelfMapper,
 )
@@ -1718,6 +1721,7 @@ def _get_ary_to_concatenatabilities(call_sites: Sequence[Call],
 
 def _get_replacement_map_post_concatenating(
         call_sites: Sequence[Call],
+        used_call_results: frozenset(NamedCallResult),
         input_concatenator: _InputConcatenator,
         output_slicer: _OutputSlicer) -> Mapping[NamedCallResult, Array]:
     """
@@ -1750,12 +1754,40 @@ def _get_replacement_map_post_concatenating(
     # {{{ actually perform the concatenation
 
     template_call_site, *other_call_sites = call_sites
-    template_returns = template_call_site.function.returns
+    template_function = template_call_site.function
+    template_returns = template_function.returns
     template_bindings = template_call_site.bindings
 
     function_concatenator = _FunctionConcatenator(
         current_stack=(), input_concatenator=input_concatenator,
         ary_to_concatenatability=ary_to_concatenatability)
+
+    if __debug__:
+        # FIXME: We may be able to handle this without burdening the user
+        # See https://github.com/inducer/pytato/issues/559
+        fid = next(iter(template_function.tags_of_type(FunctionIdentifier)))
+        from collections import defaultdict
+        param_to_used_calls = defaultdict(set)
+        for output_name in template_call_site.keys():
+            for csite in call_sites:
+                call_result = csite[output_name]
+                if call_result in used_call_results:
+                    ret = csite.function.returns[output_name]
+                    used_params = (
+                        {
+                            expr.name
+                            for expr in InputGatherer()(ret)}
+                        & csite.function.parameters)
+                    for name in used_params:
+                        param_to_used_calls[name] |= {csite}
+        for name, used_calls in param_to_used_calls.items():
+            if used_calls != set(call_sites):
+                from warnings import warn
+                warn(
+                    f"DAG output does not depend on parameter '{name}' for some "
+                    f"calls to function with ID '{fid}'. Concatenation will prevent "
+                    "these unused inputs from being removed from the DAG when the "
+                    "function is inlined. This may lead to unnecessary computation.")
 
     # new_returns: concatenated function body
     new_returns: Dict[str, Array] = {}
@@ -1866,7 +1898,6 @@ def concatenate_calls(expr: ArrayOrNames,
                            for cs in all_call_sites
                            if call_site_filter(cs)}
 
-    from pytato.tags import FunctionIdentifier
     function_ids = {
         next(iter(cs.call.function.tags_of_type(FunctionIdentifier)))
         for cs in filtered_call_sites}
@@ -1891,7 +1922,6 @@ def concatenate_calls(expr: ArrayOrNames,
 
         for cs in unbatched_call_sites:
             for ret in cs.call.function.returns.values():
-                from pytato.analysis import collect_nodes_of_type
                 nested_calls = collect_nodes_of_type(ret, Call)
                 if nested_calls:
                     raise NotImplementedError(
@@ -1902,6 +1932,8 @@ def concatenate_calls(expr: ArrayOrNames,
         replacement_map: Dict[
             Tuple[NamedCallResult, Tuple[Call, ...]],
             Array] = {}
+
+        used_call_results = collect_nodes_of_type(result, NamedCallResult)
 
         while unbatched_call_sites:
             ready_call_sites = frozenset({
@@ -2001,6 +2033,7 @@ def concatenate_calls(expr: ArrayOrNames,
 
             old_expr_to_new_expr_map = _get_replacement_map_post_concatenating(
                     [cs.call for cs in call_sites],
+                    used_call_results,
                     input_concatenator=input_concatenator,
                     output_slicer=output_slicer)
 
