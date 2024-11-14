@@ -914,6 +914,7 @@ class TransformMapperWithExtraArgsCache(
         try:
             result = self._result_key_to_result[result_key]
         except KeyError:
+            from pytato.analysis import DirectPredecessorsGetter
             if (
                     self.err_on_no_op_duplication
                     and hash(result_key) == hash(key)
