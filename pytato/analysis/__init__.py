@@ -55,7 +55,7 @@ if TYPE_CHECKING:
 
 # FIXME: This isn't quite right; 'Call's should also be included?
 # Maybe nodes should just be arrays...
-NodeT = Array | FunctionDefinition
+NodeT = Array | FunctionDefinition | Call
 
 __doc__ = """
 .. currentmodule:: pytato.analysis
