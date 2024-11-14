@@ -129,28 +129,20 @@ class PlaceholderSubstitutor(CopyMapper):
         :class:`pytato.transform.CopyMapper` if duplicates need to be removed.
     """
 
-    def __init__(self, substitutions: Mapping[str, Array], err_on_function: bool = False) -> None:
+    def __init__(self, substitutions: Mapping[str, Array]) -> None:
         # Ignoring function cache, not needed
         super().__init__()
         self.substitutions = substitutions
-        self.err_on_function = err_on_function
-
-        from collections import defaultdict
-        self.substitution_counts = defaultdict(int)
 
     def map_placeholder(self, expr: Placeholder) -> Array:
         # Can't call rec() to remove duplicates here, because the substituted-in
         # expression may potentially contain unrelated placeholders whose names
         # collide with the ones being replaced
-        result = self.substitutions[expr.name]
-        self.substitution_counts[expr.name] += 1
-        return result
+        return self.substitutions[expr.name]
 
     def map_function_definition(
             self, expr: FunctionDefinition) -> FunctionDefinition:
         # Only operates within the current stack frame
-        if self.err_on_function:
-            raise ValueError("encountered unexpected function")
         return expr
 
 
@@ -178,17 +170,13 @@ class Inliner(CopyMapper):
 
     def map_call(self, expr: Call) -> AbstractResultWithNamedArrays:
         if expr.tags_of_type(InlineCallTag):
-            substitutor = PlaceholderSubstitutor(expr.bindings, err_on_function=True)
+            substitutor = PlaceholderSubstitutor(expr.bindings)
 
-            result = DictOfNamedArrays(
+            return DictOfNamedArrays(
                 {name: self.rec(substitutor(ret))
                  for name, ret in expr.function.returns.items()},
                 tags=expr.tags
             )
-
-            assert frozenset(expr.bindings.keys()) == frozenset(substitutor.substitution_counts.keys())
-
-            return result
         else:
             return super().map_call(expr)
 
@@ -196,20 +184,9 @@ class Inliner(CopyMapper):
         new_call_or_inlined_expr = self.rec(expr._container)
         assert isinstance(new_call_or_inlined_expr, AbstractResultWithNamedArrays)
         if isinstance(new_call_or_inlined_expr, Call):
-            result = new_call_or_inlined_expr[expr.name]
+            return new_call_or_inlined_expr[expr.name]
         else:
-            result = new_call_or_inlined_expr[expr.name].expr
-
-        # from pytato.analysis import collect_nodes_of_type
-        # from pytato import DistributedSendRefHolder, DistributedRecv
-        # sends_before = collect_nodes_of_type(expr, DistributedSendRefHolder)
-        # recvs_before = collect_nodes_of_type(expr, DistributedRecv)
-        # sends_after = collect_nodes_of_type(result, DistributedSendRefHolder)
-        # recvs_after = collect_nodes_of_type(result, DistributedRecv)
-        # assert sends_before & sends_after == sends_before
-        # assert recvs_before & recvs_after == recvs_before
-
-        return result
+            return new_call_or_inlined_expr[expr.name].expr
 
 
 class InlineMarker(CopyMapper):
@@ -421,29 +398,12 @@ class _NamedCallResultReplacerPostConcatenate(CopyMapper):
             return Call(new_function, immutabledict(new_bindings), tags=expr.tags)
 
     def map_named_call_result(self, expr: NamedCallResult) -> Array:
-        # from pytato.analysis import collect_nodes_of_type
-        # from pytato import DistributedSendRefHolder, DistributedRecv
-        # sends = collect_nodes_of_type(expr, DistributedSendRefHolder)
-        # recvs = collect_nodes_of_type(expr, DistributedRecv)
         try:
             new_expr = self.replacement_map[expr, self.current_stack]
-            # sends_new = collect_nodes_of_type(new_expr, DistributedSendRefHolder)
-            # assert sends_new & sends == sends
-            # recvs_new = collect_nodes_of_type(new_expr, DistributedRecv)
-            # assert recvs_new & recvs == recvs
             if isinstance(new_expr, NamedCallResult):
-                result = super().map_named_call_result(new_expr)
-                # sends_new = collect_nodes_of_type(result, DistributedSendRefHolder)
-                # assert sends_new & sends == sends
-                # recvs_new = collect_nodes_of_type(result, DistributedRecv)
-                # assert recvs_new & recvs == recvs
+                return super().map_named_call_result(new_expr)
             else:
-                result = self.rec(new_expr)
-                # sends_new = collect_nodes_of_type(result, DistributedSendRefHolder)
-                # assert sends_new & sends == sends
-                # recvs_new = collect_nodes_of_type(result, DistributedRecv)
-                # assert recvs_new & recvs == recvs
-            return result
+                return self.rec(new_expr)
         except KeyError:
             return super().map_named_call_result(expr)
 
@@ -1798,23 +1758,6 @@ def _get_replacement_map_post_concatenating(
     template_returns = template_function.returns
     template_bindings = template_call_site.bindings
 
-    for cs in call_sites:
-        assert frozenset(cs.bindings.keys()) == frozenset(template_bindings.keys())
-
-    from pytato import DistributedSendRefHolder, DistributedRecv
-
-    nsends = sum(
-        len(collect_nodes_of_type(ret, DistributedSendRefHolder))
-        for cs in call_sites
-        for ret in cs.function.returns.values())
-    assert nsends == 0
-
-    nrecvs = sum(
-        len(collect_nodes_of_type(ret, DistributedRecv))
-        for cs in call_sites
-        for ret in cs.function.returns.values())
-    assert nrecvs == 0
-
     function_concatenator = _FunctionConcatenator(
         current_stack=(), input_concatenator=input_concatenator,
         ary_to_concatenatability=ary_to_concatenatability)
@@ -1883,18 +1826,6 @@ def _get_replacement_map_post_concatenating(
             new_binding = input_concatenator(
                 param_bindings,
                 param_concat.axis)
-            # sends_new = collect_nodes_of_type(new_binding, DistributedSendRefHolder)
-            # sends = reduce(
-            #     frozenset.union,
-            #     (collect_nodes_of_type(bnd, DistributedSendRefHolder) for bnd in param_bindings),
-            #     frozenset())
-            # assert sends_new == sends
-            # recvs_new = collect_nodes_of_type(new_binding, DistributedRecv)
-            # recvs = reduce(
-            #     frozenset.union,
-            #     (collect_nodes_of_type(bnd, DistributedRecv) for bnd in param_bindings),
-            #     frozenset())
-            # assert recvs_new == recvs
         elif isinstance(param_concat, ConcatableIfConstant):
             _verify_arrays_same([csite.bindings[param_name]
                                  for csite in call_sites])
@@ -1916,20 +1847,6 @@ def _get_replacement_map_post_concatenating(
     else:
         new_call = template_call_site
 
-    # from pytato import make_dict_of_named_arrays
-
-    # old_call_bindings_dict = make_dict_of_named_arrays({
-    #     param_name + "_" + str(i): cs.bindings[param_name]
-    #     for param_name in template_bindings
-    #     for i, cs in enumerate(call_sites)})
-    # new_call_bindings_dict = make_dict_of_named_arrays(new_call.bindings)
-    # sends_old = collect_nodes_of_type(old_call_bindings_dict, DistributedSendRefHolder)
-    # sends_new = collect_nodes_of_type(new_call_bindings_dict, DistributedSendRefHolder)
-    # assert sends_old == sends_new
-    # recvs_old = collect_nodes_of_type(old_call_bindings_dict, DistributedRecv)
-    # recvs_new = collect_nodes_of_type(new_call_bindings_dict, DistributedRecv)
-    # assert recvs_old == recvs_new
-
     # slice into new_call's outputs to replace the old expressions.
     for output_name, output_ary in (template_call_site
                                     .function
@@ -1943,12 +1860,6 @@ def _get_replacement_map_post_concatenating(
             # would cause problems...
             for cs in call_sites:
                 result[cs[output_name]] = new_return
-                # sends_old = collect_nodes_of_type(cs[output_name], DistributedSendRefHolder)
-                # sends_new = collect_nodes_of_type(new_return, DistributedSendRefHolder)
-                # assert sends_old == sends_new
-                # recvs_old = collect_nodes_of_type(cs[output_name], DistributedRecv)
-                # recvs_new = collect_nodes_of_type(new_return, DistributedRecv)
-                # assert recvs_old == recvs_new
         elif isinstance(concat, ConcatableAlongAxis):
             slice_sizes = [
                 cs[output_name].shape[concat.axis]
@@ -1956,12 +1867,6 @@ def _get_replacement_map_post_concatenating(
             output_slices = output_slicer(new_return, concat.axis, slice_sizes)
             for cs, output_slice in zip(call_sites, output_slices):
                 result[cs[output_name]] = output_slice
-                # sends_old = collect_nodes_of_type(cs[output_name], DistributedSendRefHolder)
-                # sends_new = collect_nodes_of_type(output_slice.array, DistributedSendRefHolder)
-                # assert sends_old & sends_new == sends_old
-                # recvs_old = collect_nodes_of_type(cs[output_name], DistributedRecv)
-                # recvs_new = collect_nodes_of_type(output_slice.array, DistributedRecv)
-                # assert recvs_old & recvs_new == recvs_old
         else:
             raise NotImplementedError(type(concat))
 
@@ -2015,18 +1920,6 @@ def concatenate_calls(expr: ArrayOrNames,
             cs for cs in call_site_to_dep_call_sites.keys()
             if call_site_filter(cs) and fid in cs.call.function.tags}
 
-        from mpi4py import MPI
-        rank = MPI.COMM_WORLD.rank
-
-        if rank == 0:
-            print("call traceback tags for rank 0:")
-            for cs in unbatched_call_sites:
-                first_result_name = next(iter(cs.call.function.returns.keys()))
-                tb_tag = next(iter(cs.call[first_result_name].non_equality_tags))
-                print("tb_tag=")
-                print(f"{tb_tag}")
-                print("")
-
         for cs in unbatched_call_sites:
             for ret in cs.call.function.returns.values():
                 nested_calls = collect_nodes_of_type(ret, Call)
@@ -2046,6 +1939,9 @@ def concatenate_calls(expr: ArrayOrNames,
             ready_call_sites = frozenset({
                 cs for cs in unbatched_call_sites
                 if not call_site_to_dep_call_sites[cs] & unbatched_call_sites})
+
+            from mpi4py import MPI
+            rank = MPI.COMM_WORLD.rank
 
             if fid.identifier == "_make_fluid_state":
                 print(f"{rank}: {len(ready_call_sites)=}")
@@ -2102,12 +1998,13 @@ def concatenate_calls(expr: ArrayOrNames,
             call_site_batches.append(similar_call_sites)
             unbatched_call_sites -= similar_call_sites
 
-        from pytato import DistributedSendRefHolder, DistributedRecv
-
         # FIXME: this doesn't work; need to create/execute batches one at a time,
         # then repeat the steps above to collect the updated call sites after
         # concatenating the previous batch
         for ibatch, call_sites in enumerate(call_site_batches):
+            from mpi4py import MPI
+            rank = MPI.COMM_WORLD.rank
+
             template_fn = next(iter(call_sites)).call.function
 
             # FIXME: Can't currently call get_num_nodes on a function definition
@@ -2140,27 +2037,11 @@ def concatenate_calls(expr: ArrayOrNames,
                     input_concatenator=input_concatenator,
                     output_slicer=output_slicer)
 
-            # for old_expr, new_expr in old_expr_to_new_expr_map.items():
-            #     sends_old = collect_nodes_of_type(old_expr, DistributedSendRefHolder)
-            #     sends_new = collect_nodes_of_type(new_expr, DistributedSendRefHolder)
-            #     assert sends_old & sends_new == sends_old
-            #     recvs_old = collect_nodes_of_type(old_expr, DistributedRecv)
-            #     recvs_new = collect_nodes_of_type(new_expr, DistributedRecv)
-            #     assert recvs_old & recvs_new == recvs_old
-
             stack, = {cs.stack for cs in call_sites}
 
             replacement_map.update({
                 (old_expr, stack): new_expr
                 for old_expr, new_expr in old_expr_to_new_expr_map.items()})
-
-        # for (old_expr, _), new_expr in replacement_map.items():
-        #     sends_old = collect_nodes_of_type(old_expr, DistributedSendRefHolder)
-        #     sends_new = collect_nodes_of_type(new_expr, DistributedSendRefHolder)
-        #     assert sends_old & sends_new == sends_old
-        #     recvs_old = collect_nodes_of_type(old_expr, DistributedRecv)
-        #     recvs_new = collect_nodes_of_type(new_expr, DistributedRecv)
-        #     assert recvs_old & recvs_new == recvs_old
 
         # FIXME: Still getting some duplicated `Concatenate`s, not sure why
         dedup = Deduplicator()
@@ -2169,29 +2050,9 @@ def concatenate_calls(expr: ArrayOrNames,
             old_expr_and_stack: dedup(new_expr)
             for old_expr_and_stack, new_expr in replacement_map.items()}
 
-        # for (old_expr, _), new_expr in replacement_map.items():
-        #     sends_old = collect_nodes_of_type(old_expr, DistributedSendRefHolder)
-        #     sends_new = collect_nodes_of_type(new_expr, DistributedSendRefHolder)
-        #     assert sends_old & sends_new == sends_old
-        #     recvs_old = collect_nodes_of_type(old_expr, DistributedRecv)
-        #     recvs_new = collect_nodes_of_type(new_expr, DistributedRecv)
-        #     assert recvs_old & recvs_new == recvs_old
-
-        # sends_init = collect_nodes_of_type(expr, DistributedSendRefHolder)
-        # recvs_init = collect_nodes_of_type(expr, DistributedRecv)
-
         result = _NamedCallResultReplacerPostConcatenate(
             replacement_map=replacement_map,
             current_stack=())(result)
-
-        # sends_new = collect_nodes_of_type(result, DistributedSendRefHolder)
-        # recvs_new = collect_nodes_of_type(result, DistributedRecv)
-
-        # if sends_init & sends_new != sends_init:
-        #     raise AssertionError(f"{rank}: Missing sends while concatenating function '{fid}'.")
-
-        # if recvs_init & recvs_new != recvs_init:
-        #     raise AssertionError(f"{rank}: Missing recvs while concatenating function '{fid}'.")
 
     assert isinstance(result, (Array, AbstractResultWithNamedArrays))
     return result
