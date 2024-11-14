@@ -1287,7 +1287,7 @@ class _FunctionConcatenator(TransformMapperWithExtraArgs):
             self.current_stack + (expr,),
             self.input_concatenator,
             self.ary_to_concatenatability,
-            _function_cache=_function_cache
+            _function_cache=self._function_cache
         )
 
     def _get_concatenatability(self, expr: Array) -> Concatenatability:
