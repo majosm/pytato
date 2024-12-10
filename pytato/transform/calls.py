@@ -1995,8 +1995,18 @@ def concatenate_calls(expr: ArrayOrNames,
             if not similar_call_sites:
                 raise ValueError("Failed to find similar call sites to concatenate.")
 
-            call_site_batches.append(similar_call_sites)
-            unbatched_call_sites -= similar_call_sites
+            def get_axis0_len(cs):
+                first_out_name = next(iter(cs.call.function.returns.keys()))
+                axis0_len = cs.call[first_out_name].shape[0]
+                assert all(
+                    cs.call[name].shape[0] == axis0_len
+                    for name in cs.call.function.returns)
+                return axis0_len
+
+            batch_call_sites = sorted(similar_call_sites, key=get_axis0_len)
+
+            call_site_batches.append(batch_call_sites)
+            unbatched_call_sites -= frozenset(batch_call_sites)
 
         # FIXME: this doesn't work; need to create/execute batches one at a time,
         # then repeat the steps above to collect the updated call sites after
