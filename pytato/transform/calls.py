@@ -1111,9 +1111,13 @@ class _ConcatabilityCollector(CachedWalkMapper):
                     if ary.shape[concatenatability.axis] != 1}) != 1:
                 raise _InvalidConcatenatability(
                     "Cannot concatenate the calls; required fields are not the same.")
+            bnd_name_to_concat = None
             for ary in (idx_lambda,) + idx_lambdas_from_other_calls:
-                if ary.shape[concatenatability.axis] == 1:
-                    continue
+                if ary.shape[concatenatability.axis] > 1:
+                    bnd_name_to_concat = _get_binding_to_concatenatability(
+                        ary.expr, concatenatability.axis, allow_indirect_addr)
+                    break
+            if bnd_name_to_concat is None:
                 bnd_name_to_concat = _get_binding_to_concatenatability(
                     idx_lambda.expr, concatenatability.axis, allow_indirect_addr)
             for bnd_name, bnd_concat in bnd_name_to_concat.items():
