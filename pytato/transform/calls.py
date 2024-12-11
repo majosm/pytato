@@ -1857,8 +1857,6 @@ def _get_replacement_map_post_concatenating(
                 param_bindings,
                 param_concat.axis)
         elif isinstance(param_concat, ConcatableIfConstant):
-            _verify_arrays_same([csite.bindings[param_name]
-                                 for csite in call_sites])
             new_binding = template_bindings[param_name]
         else:
             raise NotImplementedError(type(param_concat))
