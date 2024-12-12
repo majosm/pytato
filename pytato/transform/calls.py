@@ -1680,11 +1680,14 @@ def _get_ary_to_concatenatabilities(call_sites: Sequence[Call],
     fn_concatenatabilities = \
         _get_valid_concatenatability_constraints_simple(*call_sites)
 
+    # select a template call site to start the traversal.
+    template_call, *other_calls = call_sites
+    template_fn = template_call.function
+    fid = next(iter(template_fn.tags_of_type(FunctionIdentifier)))
+
     for fn_concatenatability in fn_concatenatabilities:
         collector = _ConcatabilityCollector(current_stack=())
 
-        # select a template call site to start the traversal.
-        template_call, *other_calls = call_sites
 
         try:
             # verify the constraints on parameters are satisfied
@@ -1717,8 +1720,9 @@ def _get_ary_to_concatenatabilities(call_sites: Sequence[Call],
                                           " function's returned values are not"
                                           " yet supported.")
 
-            logger.info("Found a valid concatenatability --\n"
-                        f"{fn_concatenatability}")
+            logger.info(
+                f"Found a valid concatenatability for function with ID '{fid}' --\n"
+                f"{fn_concatenatability}")
 
             yield immutabledict(collector.ary_to_concatenatability)
 
@@ -1738,10 +1742,15 @@ def _get_replacement_map_post_concatenating(
 
     ary_to_concatenatabilities = _get_ary_to_concatenatabilities(call_sites)
 
+    template_call_site, *other_call_sites = call_sites
+    template_function = template_call_site.function
+    fid = next(iter(template_function.tags_of_type(FunctionIdentifier)))
+
     try:
         ary_to_concatenatability = next(ary_to_concatenatabilities)
     except StopIteration:
-        raise ValueError("No valid concatenatibilities found.")
+        raise ValueError(
+            f"No valid concatenatibilities found for function with ID '{fid}'.")
     else:
         if __debug__:
             try:
@@ -1752,13 +1761,13 @@ def _get_replacement_map_post_concatenating(
             else:
                 from warnings import warn
                 # TODO: Take some input from the user to resolve this ambiguity.
-                warn("Multiple concatenation possibilities found. This may"
-                     " lead to non-deterministic transformed expression graphs.")
+                warn(
+                    "Multiple concatenation possibilities found for function with "
+                    f"ID '{fid}'. This may lead to non-deterministic transformed "
+                    "expression graphs.")
 
     # {{{ actually perform the concatenation
 
-    template_call_site, *other_call_sites = call_sites
-    template_function = template_call_site.function
     template_returns = template_function.returns
     template_bindings = template_call_site.bindings
 
@@ -1769,7 +1778,6 @@ def _get_replacement_map_post_concatenating(
     if __debug__:
         # FIXME: We may be able to handle this without burdening the user
         # See https://github.com/inducer/pytato/issues/559
-        fid = next(iter(template_function.tags_of_type(FunctionIdentifier)))
         from collections import defaultdict
         param_to_used_calls = defaultdict(set)
         for output_name in template_call_site.keys():
