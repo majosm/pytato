@@ -986,18 +986,15 @@ def _verify_arrays_can_be_concated_along_axis(
         are being checked for concatenation along *iaxis*.
     """
     if not _have_same_axis_length_except(arrays, iaxis):
-        raise _InvalidConcatenatability(
-            "Cannot concatenate the calls; axis lengths are incompatible.")
+        raise _InvalidConcatenatability("Axis lengths are incompatible.")
     for field in fields_that_must_be_same:
         if len({getattr(ary, field) for ary in arrays}) != 1:
-            raise _InvalidConcatenatability(
-                "Cannot concatenate the calls; required fields are not the same.")
+            raise _InvalidConcatenatability(f"Field '{field}' varies across calls.")
 
 
 def _verify_arrays_same(arrays: Collection[Array]) -> None:
     if len(set(arrays)) != 1:
-        raise _InvalidConcatenatability("Cannot be concatenated as arrays across "
-                                        "functions are not the same.")
+        raise _InvalidConcatenatability("Arrays are not the same.")
 
 
 def _get_concatenated_shape(arrays: Collection[Array], iaxis: int) -> ShapeType:
@@ -1685,35 +1682,44 @@ def _get_ary_to_concatenatabilities(call_sites: Sequence[Call],
     template_fn = template_call.function
     fid = next(iter(template_fn.tags_of_type(FunctionIdentifier)))
 
-    for fn_concatenatability in fn_concatenatabilities:
-        collector = _ConcatabilityCollector(current_stack=())
+    concat_idx_to_err_msg = {}
 
+    for iconcat, fn_concatenatability in enumerate(fn_concatenatabilities):
+        collector = _ConcatabilityCollector(current_stack=())
 
         try:
             # verify the constraints on parameters are satisfied
             for name, input_concat in (fn_concatenatability
                                        .input_to_concatenatability
                                        .items()):
-                if isinstance(input_concat, ConcatableIfConstant):
-                    _verify_arrays_same([cs.bindings[name] for cs in call_sites])
-                elif isinstance(input_concat, ConcatableAlongAxis):
-                    _verify_arrays_can_be_concated_along_axis(
-                        [cs.bindings[name] for cs in call_sites],
-                        [],
-                        input_concat.axis)
-                else:
-                    raise NotImplementedError(type(input_concat))
+                try:
+                    if isinstance(input_concat, ConcatableIfConstant):
+                        _verify_arrays_same([cs.bindings[name] for cs in call_sites])
+                    elif isinstance(input_concat, ConcatableAlongAxis):
+                        _verify_arrays_can_be_concated_along_axis(
+                            [cs.bindings[name] for cs in call_sites],
+                            [],
+                            input_concat.axis)
+                    else:
+                        raise NotImplementedError(type(input_concat))
+                except _InvalidConcatenatability as e:
+                    raise _InvalidConcatenatability(
+                        f"Binding for input {name} is not concatenatable. {str(e)}")
 
             # verify the constraints on function bodies are satisfied
             for name, output_concat in (fn_concatenatability
                                         .output_to_concatenatability
                                         .items()):
-                collector(template_call.function.returns[name],
-                          output_concat,
-                          tuple(other_call.function.returns[name]
-                                for other_call in other_calls))
-        except _InvalidConcatenatability:
-            pass
+                try:
+                    collector(template_call.function.returns[name],
+                              output_concat,
+                              tuple(other_call.function.returns[name]
+                                    for other_call in other_calls))
+                except _InvalidConcatenatability as e:
+                    raise _InvalidConcatenatability(
+                        f"Function output {name} is not concatenatable. {str(e)}")
+        except _InvalidConcatenatability as e:
+            concat_idx_to_err_msg[iconcat] = str(e)
         else:
             if collector.call_sites_on_hold:
                 raise NotImplementedError("Expressions that use part of"
@@ -1725,6 +1731,18 @@ def _get_ary_to_concatenatabilities(call_sites: Sequence[Call],
                 f"{fn_concatenatability}")
 
             yield immutabledict(collector.ary_to_concatenatability)
+
+    log_str = (
+        f"No more valid concatenatabilities for function with ID '{fid}'. "
+        "Unsuitable candidates:\n")
+    for iconcat, fn_concatenatability in enumerate(fn_concatenatabilities):
+        try:
+            err_msg = concat_idx_to_err_msg[iconcat]
+        except KeyError:
+            continue
+        log_str += f"Candidate:\n{fn_concatenatability}\n"
+        log_str += f"Error: {concat_idx_to_err_msg[iconcat]}\n\n"
+    logger.info(log_str)
 
 
 def _get_replacement_map_post_concatenating(
