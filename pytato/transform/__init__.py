@@ -321,10 +321,16 @@ class TransformMapper(CachedMapper[ArrayOrNames, FunctionDefinition, []]):
     implement default mapper methods; for that, see :class:`CopyMapper`.
 
     """
-    def rec_ary(self, expr: Array) -> Array:
-        res = self.rec(expr)
-        assert isinstance(res, Array)
-        return res
+    # Define conditionally to avoid inflating recursion depth
+    if TYPE_CHECKING:
+        def rec_ary(self, expr: Array) -> Array:
+            res = self.rec(expr)
+            assert isinstance(res, Array)
+            return res
+    else:
+        @property
+        def rec_ary(self):
+            return self.rec
 
 # }}}
 
@@ -341,10 +347,16 @@ class TransformMapperWithExtraArgs(
     The logic in :class:`TransformMapper` purposely does not take the extra
     arguments to keep the cost of its each call frame low.
     """
-    def rec_ary(self, expr: Array, *args: P.args, **kwargs: P.kwargs) -> Array:
-        res = self.rec(expr, *args, **kwargs)
-        assert isinstance(res, Array)
-        return res
+    # Define conditionally to avoid inflating recursion depth
+    if TYPE_CHECKING:
+        def rec_ary(self, expr: Array, *args: P.args, **kwargs: P.kwargs) -> Array:
+            res = self.rec(expr, *args, **kwargs)
+            assert isinstance(res, Array)
+            return res
+    else:
+        @property
+        def rec_ary(self):
+            return self.rec
 
 # }}}
 
