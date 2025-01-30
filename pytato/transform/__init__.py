@@ -1712,6 +1712,27 @@ class MPMSMaterializer(Mapper[MPMSMaterializerAccumulator, Never, []]):
                               ) -> MPMSMaterializerAccumulator:
         raise NotImplementedError("MPMSMaterializer does not support functions.")
 
+
+class MaterializedArrayToPlaceholderMapper(CopyMapper):
+    """Mapper to replace materialized arrays with :class:`Placeholder`\\ s."""
+    def __init__(self) -> None:
+        super().__init__()
+        from pytools import UniqueNameGenerator
+        self.vng = UniqueNameGenerator()
+
+    def rec(self, expr: ArrayOrNames) -> ArrayOrNames:
+        if expr.tags_of_type(ImplStored()):
+            from pytato.codegen import _generate_name_for_temp
+            name = _generate_name_for_temp(expr, self.vng, "_materialized_pl")
+            return make_placeholder(
+                name=name,
+                shape=tuple(cast(Array, self.rec(s)) if isinstance(s, Array) else s
+                            for s in expr.shape),
+                dtype=expr.dtype,
+                axes=expr.axes,
+                tags=expr.tags)
+        return super().rec(expr)
+
 # }}}
 
 
@@ -1810,12 +1831,34 @@ def materialize_with_mpms(expr: DictOfNamedArrays) -> DictOfNamedArrays:
 
     """
     from pytato.analysis import get_nusers
-    materializer = MPMSMaterializer(get_nusers(expr))
+    array_to_nusers = get_nusers(expr)
+
+    materializer = MPMSMaterializer(array_to_nusers)
     new_data = {}
     for name, ary in expr.items():
         new_data[name] = materializer(ary.expr).expr
 
-    return DictOfNamedArrays(new_data, tags=expr.tags)
+    result = DictOfNamedArrays(new_data, tags=expr.tags)
+
+    if __debug__:
+        from pytato.analysis import collect_non_materialized_nodes, get_num_nodes
+
+        non_materialized_arrays = collect_non_materialized_nodes(result)
+        non_materialized_arrays = frozenset({
+            ary
+            for ary in non_materialized_arrays
+            if array_to_nusers[ary] > 1})
+
+        matp_mapper = MaterializedArrayToPlaceholderMapper()
+        for ary in non_materialized_arrays:
+            matp_ary = matp_mapper(ary)
+            # FIXME: Would be good to have a way to cache nnodes of subexpressions
+            # so we don't compute multiple times in this loop
+            nnodes = get_num_nodes(matp_ary, count_duplicates=False)
+            nusers = array_to_nusers[ary]
+            print(f"{nusers=}, {nnodes=}")
+
+    return result
 
 # }}}
 
