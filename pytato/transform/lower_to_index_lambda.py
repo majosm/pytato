@@ -488,7 +488,7 @@ class ToIndexLambdaMixin:
     def map_roll(self, expr: Roll) -> IndexLambda:
         from pytato.utils import dim_to_index_lambda_components
 
-        index_expr: prim.Expression = prim.Variable("_in0")
+        index_expr: prim.ExpressionNode = prim.Variable("_in0")
         indices: list[ArithmeticExpression] = [
             prim.Variable(f"_{d}") for d in range(expr.ndim)]
         axis = expr.axis
@@ -530,7 +530,7 @@ class ToIndexLambdaMixin:
 
         vng = UniqueNameGenerator()
         indices: list[ArithmeticExpression] = []
-        in_ary = vng("in")
+        in_ary = vng("in_0")
         bindings = {in_ary: self.rec(expr.array)}
         islice_idx = 0
 
@@ -540,7 +540,7 @@ class ToIndexLambdaMixin:
                 if isinstance(axis_len, INT_CLASSES):
                     indices.append(idx % axis_len)
                 else:
-                    bnd_name = vng("in")
+                    bnd_name = vng("in_0")
                     bindings[bnd_name] = self.rec(axis_len)
                     indices.append(idx % prim.Variable(bnd_name))
             elif isinstance(idx, NormalizedSlice):
@@ -552,7 +552,7 @@ class ToIndexLambdaMixin:
                 islice_idx += 1
             elif isinstance(idx, Array):
                 if isinstance(axis_len, INT_CLASSES):
-                    bnd_name = vng("in")
+                    bnd_name = vng("in_0")
                     bindings[bnd_name] = self.rec(idx)
                     indirect_idx_expr: ArithmeticExpression = prim.Subscript(
                         prim.Variable(bnd_name),
@@ -602,7 +602,7 @@ class ToIndexLambdaMixin:
         vng = UniqueNameGenerator()
         indices: list[ArithmeticExpression] = []
 
-        in_ary = vng("in")
+        in_ary = vng("in_0")
         bindings = {in_ary: self.rec(expr.array)}
 
         islice_idx = len(adv_idx_shape)
@@ -612,7 +612,7 @@ class ToIndexLambdaMixin:
                 if isinstance(axis_len, INT_CLASSES):
                     indices.append(idx % axis_len)
                 else:
-                    bnd_name = vng("in")
+                    bnd_name = vng("in_0")
                     bindings[bnd_name] = self.rec(axis_len)
                     indices.append(idx % prim.Variable(bnd_name))
             elif isinstance(idx, NormalizedSlice):
@@ -624,7 +624,7 @@ class ToIndexLambdaMixin:
                 islice_idx += 1
             elif isinstance(idx, Array):
                 if isinstance(axis_len, INT_CLASSES):
-                    bnd_name = vng("in")
+                    bnd_name = vng("in_0")
                     bindings[bnd_name] = self.rec(idx)
 
                     indirect_idx_expr: ArithmeticExpression = prim.Subscript(
@@ -662,7 +662,7 @@ class ToIndexLambdaMixin:
         vng = UniqueNameGenerator()
         indices: list[ArithmeticExpression] = []
 
-        in_ary = vng("in")
+        in_ary = vng("in_0")
         bindings = {in_ary: self.rec(expr.array)}
         islice_idx = 0
 
@@ -671,7 +671,7 @@ class ToIndexLambdaMixin:
                 if isinstance(axis_len, INT_CLASSES):
                     indices.append(idx % axis_len)
                 else:
-                    bnd_name = vng("in")
+                    bnd_name = vng("in_0")
                     bindings[bnd_name] = self.rec(axis_len)
                     indices.append(idx % prim.Variable(bnd_name))
             elif isinstance(idx, NormalizedSlice):

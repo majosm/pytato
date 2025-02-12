@@ -109,6 +109,7 @@ __doc__ = """
 .. autoclass:: CachedWalkMapper
 .. autoclass:: TopoSortMapper
 .. autoclass:: CachedMapAndCopyMapper
+.. autoclass:: PostMapEqualNodeReuser
 .. autofunction:: copy_dict_of_named_arrays
 .. autofunction:: get_dependencies
 .. autofunction:: map_and_copy
@@ -1847,7 +1848,7 @@ def materialize_with_mpms(expr: DictOfNamedArrays) -> DictOfNamedArrays:
     from pytato import DEBUG_ENABLED
     if DEBUG_ENABLED:
         transform_logger.info("materialize_with_mpms: materialized "
-            f"{get_num_tags_of_type(res, ImplStored())} out of "
+            f"{get_num_tags_of_type(res, ImplStored)} out of "
             f"{get_num_nodes(res)} nodes")
 
     return res
@@ -2048,11 +2049,26 @@ def rec_get_user_nodes(expr: ArrayOrNames,
 # }}}
 
 
-# {{{ BranchMorpher
+# {{{ PostMapEqualNodeReuser
 
-class BranchMorpher(CopyMapper):
+class PostMapEqualNodeReuser(CopyMapper):
     """
-    A mapper that replaces equal segments of graphs with identical objects.
+    A mapper that reuses the same object instances for equal segments of
+    graphs.
+
+    .. note::
+
+        The operation performed here is equivalent to that of a
+        :class:`CopyMapper`, in that both return a single instance for equal
+        :class:`pytato.Array` nodes. However, they differ at the point where
+        two array expressions are compared. :class:`CopyMapper` compares array
+        expressions before the expressions are mapped i.e. repeatedly comparing
+        equal array expressions but unequal instances, and because of this it
+        spends super-linear time in comparing array expressions.  On the other
+        hand, :class:`PostMapEqualNodeReuser` has linear complexity in the
+        number of nodes in the number of array expressions as the larger mapped
+        expressions already contain same instances for the predecessors,
+        resulting in a cheaper equality comparison overall.
     """
     def __init__(self) -> None:
         super().__init__()
@@ -2070,7 +2086,7 @@ class BranchMorpher(CopyMapper):
         except KeyError:
             self.result_cache[rec_expr] = rec_expr
             # type-ignored because of super-class' relaxed types
-            return rec_expr  # type: ignore[no-any-return]
+            return rec_expr
 
 # }}}
 
@@ -2164,7 +2180,9 @@ def deduplicate_data_wrappers(array_or_names: ArrayOrNames) -> ArrayOrNames:
                                len(data_wrapper_cache),
                                data_wrappers_encountered - len(data_wrapper_cache))
 
-    return BranchMorpher()(array_or_names)
+    # many paths in the DAG might be semantically equivalent after DWs are
+    # deduplicated => morph them
+    return PostMapEqualNodeReuser()(array_or_names)
 
 # }}}
 
