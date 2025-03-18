@@ -329,8 +329,6 @@ class _DistributedInputReplacer(CopyMapper):
 class _PartCommIDs:
     """A *part*, unlike a *batch*, begins with receives and ends with sends.
     """
-    # recv_ids: immutabledict[CommunicationOpIdentifier, None]
-    # send_ids: immutabledict[CommunicationOpIdentifier, None]
     recv_ids: FrozenOrderedSet[CommunicationOpIdentifier]
     send_ids: FrozenOrderedSet[CommunicationOpIdentifier]
 
@@ -526,9 +524,7 @@ def _schedule_task_batches_counted(
         [OrderedSet() for _ in range(nlevels)]
 
     for task_id, dep_level in task_to_dep_level.items():
-        if task_id not in task_batches[dep_level]:
-            # task_batches[dep_level][task_id] = None
-            task_batches[dep_level].add(task_id)
+        task_batches[dep_level].add(task_id)
 
     return task_batches, visits_in_depend + len(task_to_dep_level.keys())
 
@@ -601,17 +597,14 @@ class _MaterializedArrayCollector(CachedWalkMapper[[]]):
         from pytato.tags import ImplStored
 
         if (isinstance(expr, Array) and expr.tags_of_type(ImplStored)):
-            # self.materialized_arrays[expr] = None
             self.materialized_arrays.add(expr)
 
         if isinstance(expr, LoopyCallResult):
-            # self.materialized_arrays[expr] = None
             self.materialized_arrays.add(expr)
             from pytato.loopy import LoopyCall
             assert isinstance(expr._container, LoopyCall)
             for _, subexpr in sorted(expr._container.bindings.items()):
                 if isinstance(subexpr, Array):
-                    # self.materialized_arrays[subexpr] = None
                     self.materialized_arrays.add(subexpr)
                 else:
                     assert isinstance(subexpr, SCALAR_CLASSES)
@@ -755,7 +748,6 @@ def find_distributed_partition(
       assigned in :attr:`DistributedGraphPart.name_to_send_nodes`.
     """
     import mpi4py.MPI as MPI
-    from immutabledict import immutabledict
 
     from pytato.transform import SubsetDependencyMapper
 
@@ -820,7 +812,7 @@ def find_distributed_partition(
                         recv_ids=recv_ids,
                         send_ids=send_ids))
             # These go into the next part
-            recv_ids = immutabledict.fromkeys(
+            recv_ids = FrozenOrderedSet(
                 comm_id for comm_id in batch
                 if comm_id.dest_rank == local_rank)
         if recv_ids:
@@ -859,7 +851,7 @@ def find_distributed_partition(
     materialized_arrays_collector = _MaterializedArrayCollector()
     materialized_arrays_collector(outputs)
 
-    # The collections of arrays below must have a deterministic order in order to ensure
+    # The sets of arrays below must have a deterministic order in order to ensure
     # that the resulting partition is also deterministic
 
     sent_arrays = FrozenOrderedSet(
@@ -873,12 +865,13 @@ def find_distributed_partition(
     # We could allow sent *arrays* to be included here because they are distinct
     # from send *nodes*, but we choose to exclude them in order to simplify the
     # processing below.
-    materialized_arrays = {a: None
-                           for a in materialized_arrays_collector.materialized_arrays
-                           if a not in received_arrays | sent_arrays}
+    materialized_arrays = (
+        materialized_arrays_collector.materialized_arrays
+        - received_arrays
+        - sent_arrays)
 
     # "mso" for "materialized/sent/output"
-    output_arrays = dict.fromkeys(outputs._data.values())
+    output_arrays = FrozenOrderedSet(outputs._data.values())
     mso_arrays = materialized_arrays | sent_arrays | output_arrays
 
     # FIXME: This gathers up materialized_arrays recursively, leading to
@@ -955,12 +948,9 @@ def find_distributed_partition(
         for pred in direct_preds_getter(ary):
             assert isinstance(pred, Array)
             if pred in materialized_arrays:
-                # materialized_preds[pred] = None
                 materialized_preds.add(pred)
             else:
-                for p in get_materialized_predecessors(pred):
-                    # materialized_preds[p] = None
-                    materialized_preds.add(p)
+                materialized_preds |= get_materialized_predecessors(pred)
         return materialized_preds
 
     stored_arrays_promoted_to_part_outputs = FrozenOrderedSet(
@@ -969,7 +959,7 @@ def find_distributed_partition(
                 for stored_pred in get_materialized_predecessors(stored_ary)
                 if (stored_ary_to_part_id[stored_ary]
                     != stored_ary_to_part_id[stored_pred])
-    )
+                )
 
     # }}}
 
