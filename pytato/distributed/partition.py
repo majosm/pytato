@@ -836,6 +836,8 @@ def find_distributed_partition(
 
     nparts = len(part_comm_ids)
 
+    print(f"{local_rank}: {nparts=}")
+
     if __debug__:
         from pytato.distributed.verify import MissingRecvError, MissingSendError
 
@@ -851,6 +853,10 @@ def find_distributed_partition(
         comm_id: ipart
         for ipart, comm_ids in enumerate(part_comm_ids)
         for comm_id in comm_ids.send_ids | comm_ids.recv_ids}
+
+    for comm_id, ipart in comm_id_to_part_id.items():
+        if not (ipart >= 0) or not (ipart < nparts):
+            print(f"{local_rank}: invalid part ID {ipart} for {comm_id} in comm_id_to_part_id")
 
     # }}}
 
@@ -893,6 +899,10 @@ def find_distributed_partition(
                 mso_ary_to_first_dep_send_part_id[ary],
                 comm_id_to_part_id[send_id])
 
+    for ary, ipart in mso_ary_to_first_dep_send_part_id.items():
+        if not (ipart >= 0):
+            print(f"{local_rank}: invalid part ID {ipart} in mso_ary_to_first_dep_send_part_id")
+
     if __debug__:
         recvd_array_dep_mapper = SubsetDependencyMapper(frozenset(received_arrays))
 
@@ -923,6 +933,10 @@ def find_distributed_partition(
                 nparts-1)
             for ary in mso_arrays}
 
+    for ary, ipart in mso_ary_to_part_id.items():
+        if not (ipart >= 0) or not (ipart < nparts):
+            print(f"{local_rank}: invalid part ID {ipart} in mso_ary_to_part_id")
+
     # }}}
 
     recvd_ary_to_part_id: dict[Array, int] = {
@@ -930,6 +944,10 @@ def find_distributed_partition(
                 comm_id_to_part_id[
                     _recv_to_comm_id(local_rank, recvd_ary)])
             for recvd_ary in received_arrays}
+
+    for ary, ipart in recvd_ary_to_part_id.items():
+        if not (ipart >= 0) or not (ipart < nparts):
+            print(f"{local_rank}: invalid part ID {ipart} in recvd_ary_to_part_id")
 
     # "Materialized" arrays are arrays that are tagged with ImplStored,
     # i.e. "the outside world" (from the perspective of the partitioner)
@@ -939,6 +957,10 @@ def find_distributed_partition(
     # So, "stored" = "materialized" ∪ "overall outputs" ∪ "communicated"
     stored_ary_to_part_id = mso_ary_to_part_id.copy()
     stored_ary_to_part_id.update(recvd_ary_to_part_id)
+
+    for ary, ipart in stored_ary_to_part_id.items():
+        if not (ipart >= 0) or not (ipart < nparts):
+            print(f"{local_rank}: invalid part ID {ipart} in stored_ary_to_part_id")
 
     assert all(0 <= part_id < nparts
                for part_id in stored_ary_to_part_id.values())
