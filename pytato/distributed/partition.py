@@ -834,14 +834,6 @@ def find_distributed_partition(
                 recv_ids=FrozenOrderedSet(),
                 send_ids=FrozenOrderedSet()))
 
-    for other_rank in range(mpi_communicator.size):
-        if other_rank == local_rank:
-            print(f"{local_rank=}")
-            for ipart, comm_ids in enumerate(part_comm_ids):
-                print(f"{ipart=}, {comm_ids=}")
-            print("")
-        mpi_communicator.barrier()
-
     nparts = len(part_comm_ids)
 
     if __debug__:
@@ -1003,11 +995,7 @@ def find_distributed_partition(
 
     for name, ary in outputs._data.items():
         pid = stored_ary_to_part_id[ary]
-        try:
-            name_to_output_per_part[pid][name] = ary
-        except IndexError:
-            print(f"{nparts=}, {pid=}")
-            raise
+        name_to_output_per_part[pid][name] = ary
 
     sent_ary_to_name: dict[Array, str] = {}
     for ary in sent_arrays:
