@@ -334,6 +334,10 @@ class _UnusedCallBindingZeroer(CopyMapper):
                     new_bnd = self.rec(bnd)
                 else:
                     new_bnd = zeros(bnd.shape, bnd.dtype)
+                    try:
+                        new_bnd = self._cache._result_to_cached_result[new_bnd]
+                    except KeyError:
+                        self._cache._result_to_cached_result[new_bnd] = new_bnd
             else:
                 new_bnd = bnd
             new_bindings[name] = new_bnd
