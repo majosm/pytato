@@ -286,12 +286,14 @@ class _DistributedInputReplacer(CopyMapper):
     def map_distributed_send(self, expr: DistributedSend) -> DistributedSend:
         new_data = self.rec(expr.data)
         assert isinstance(new_data, Array)
-        new_send = DistributedSend(
-                data=new_data,
-                dest_rank=expr.dest_rank,
-                comm_tag=expr.comm_tag,
-                tags=expr.tags)
-        return new_send
+        if new_data is expr.data:
+            return expr
+        else:
+            return DistributedSend(
+                    data=new_data,
+                    dest_rank=expr.dest_rank,
+                    comm_tag=expr.comm_tag,
+                    tags=expr.tags)
 
     def rec(self, expr: ArrayOrNames) -> ArrayOrNames:
         inputs = self._make_cache_inputs(expr)
