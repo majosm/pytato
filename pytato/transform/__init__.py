@@ -29,6 +29,7 @@ THE SOFTWARE.
 import dataclasses
 import logging
 from collections.abc import Hashable, Mapping
+from functools import partial
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -74,6 +75,7 @@ from pytato.array import (
     _entries_are_identical,
     _SuppliedAxesAndTagsMixin,
 )
+from pytato.equality import EqualityComparer
 from pytato.function import Call, FunctionDefinition, NamedCallResult
 from pytato.loopy import LoopyCall, LoopyCallResult
 from pytato.tags import ImplStored
@@ -555,7 +557,9 @@ class CachedMapper(Mapper[ResultT, FunctionResultT, P]):
 
 # {{{ TransformMapper
 
-def _is_mapper_created_duplicate(expr: CacheExprT, result: CacheExprT) -> bool:
+def _is_mapper_created_duplicate(
+        expr: CacheExprT, result: CacheExprT, *,
+        equality_comparer: EqualityComparer) -> bool:
     """Returns *True* if *result* is not identical to *expr* when it ought to be."""
     # For this check to work, must preserve duplicates when retrieving
     # predecessors. DirectPredecessorsGetter deduplicates by virtue of
@@ -565,7 +569,7 @@ def _is_mapper_created_duplicate(expr: CacheExprT, result: CacheExprT) -> bool:
     return (
         result is not expr
         and hash(result) == hash(expr)
-        and result == expr
+        and equality_comparer(result, expr)
         # Only consider "direct" duplication, not duplication resulting from
         # equality-preserving changes to predecessors. Assume that such changes are
         # OK, otherwise they would have been detected at the point at which they
@@ -606,6 +610,9 @@ class TransformMapperCache(CachedMapperCache[CacheExprT, CacheExprT, P]):
 
         self._result_to_cached_result: dict[CacheExprT, CacheExprT] = {}
 
+        self._is_mapper_created_duplicate = partial(
+            _is_mapper_created_duplicate, equality_comparer=EqualityComparer())
+
     def add(
             self,
             inputs: CacheInputsWithKey[CacheExprT, P],
@@ -629,7 +636,7 @@ class TransformMapperCache(CachedMapperCache[CacheExprT, CacheExprT, P]):
         except KeyError:
             if (
                     self.err_on_created_duplicate
-                    and _is_mapper_created_duplicate(inputs.expr, result)):
+                    and self._is_mapper_created_duplicate(inputs.expr, result)):
                 raise MapperCreatedDuplicateError from None
 
             self._result_to_cached_result[result] = result
@@ -1852,6 +1859,9 @@ class MPMSMaterializerCache(
         self._result_key_to_result: dict[
             ArrayOrNames, MPMSMaterializerAccumulator] = {}
 
+        self._is_mapper_created_duplicate = partial(
+            _is_mapper_created_duplicate, equality_comparer=EqualityComparer())
+
     def add(
             self,
             inputs: CacheInputsWithKey[ArrayOrNames, []],
@@ -1876,7 +1886,7 @@ class MPMSMaterializerCache(
         except KeyError:
             if (
                     self.err_on_created_duplicate
-                    and _is_mapper_created_duplicate(inputs.expr, result.expr)):
+                    and self._is_mapper_created_duplicate(inputs.expr, result.expr)):
                 raise MapperCreatedDuplicateError from None
 
             self._result_key_to_result[result.expr] = result
