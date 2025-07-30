@@ -366,6 +366,25 @@ class CacheInputsWithKey(Generic[CacheExprT, P]):
         self.key: CacheKeyT = key
 
 
+@dataclasses.dataclass(init=True, frozen=True, eq=False)
+class CachedEqualityCacheKey:
+    key: Hashable
+    equality_comparer: EqualityComparer = dataclasses.field(hash=False)
+
+    def __hash__(self) -> int:
+        return hash(self.key)
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, CachedEqualityCacheKey):
+            other_key = other.key
+        else:
+            other_key = other
+        return self.equality_comparer(self.key, other_key)
+
+    def __ne__(self, other: object) -> bool:
+        return not self.__eq__(other)
+
+
 class CachedMapperCache(Generic[CacheExprT, CacheResultT, P]):
     """
     Cache for mappers.
@@ -391,12 +410,26 @@ class CachedMapperCache(Generic[CacheExprT, CacheResultT, P]):
         if self.err_on_collision:
             self._input_key_to_expr: dict[CacheKeyT, CacheExprT] = {}
 
+        self.equality_comparer: EqualityComparer = EqualityComparer()
+
+        # This is kind of goofy... dict appears to compare id() of keys in order to
+        # potentially bypass __eq__, so each array instance needs a unique
+        # CachedEqualityCacheKey in order to avoid extra __eq__ calls
+        self._cache_key_cache: dict[int, CacheKeyT] = {}
+
     def add(
             self,
             inputs: CacheInputsWithKey[CacheExprT, P],
             result: CacheResultT) -> CacheResultT:
         """Cache a mapping result."""
-        key = inputs.key
+        if isinstance(inputs.key, ArrayOrNames | FunctionDefinition):
+            try:
+                key = self._cache_key_cache[id(inputs.key)]
+            except KeyError:
+                key = CachedEqualityCacheKey(inputs.key, self.equality_comparer)
+                self._cache_key_cache[id(inputs.key)] = key
+        else:
+            key = inputs.key
 
         assert key not in self._input_key_to_result, \
             f"Cache entry is already present for key '{key}'."
@@ -409,7 +442,14 @@ class CachedMapperCache(Generic[CacheExprT, CacheResultT, P]):
 
     def retrieve(self, inputs: CacheInputsWithKey[CacheExprT, P]) -> CacheResultT:
         """Retrieve the cached mapping result."""
-        key = inputs.key
+        if isinstance(inputs.key, ArrayOrNames | FunctionDefinition):
+            try:
+                key = self._cache_key_cache[id(inputs.key)]
+            except KeyError:
+                key = CachedEqualityCacheKey(inputs.key, self.equality_comparer)
+                self._cache_key_cache[id(inputs.key)] = key
+        else:
+            key = inputs.key
 
         result = self._input_key_to_result[key]
 
@@ -423,6 +463,7 @@ class CachedMapperCache(Generic[CacheExprT, CacheResultT, P]):
         self._input_key_to_result = {}
         if self.err_on_collision:
             self._input_key_to_expr = {}
+        self._cache_key_cache = {}
 
 
 class CachedMapper(Mapper[ResultT, FunctionResultT, P]):
@@ -611,7 +652,7 @@ class TransformMapperCache(CachedMapperCache[CacheExprT, CacheExprT, P]):
         self._result_to_cached_result: dict[CacheExprT, CacheExprT] = {}
 
         self._is_mapper_created_duplicate = partial(
-            _is_mapper_created_duplicate, equality_comparer=EqualityComparer())
+            _is_mapper_created_duplicate, equality_comparer=self.equality_comparer)
 
     def add(
             self,
@@ -623,23 +664,36 @@ class TransformMapperCache(CachedMapperCache[CacheExprT, CacheExprT, P]):
         Returns the cached result (which may not be identical to *result* if a
         result was already cached with the same result key).
         """
-        key = inputs.key
+        if isinstance(inputs.key, ArrayOrNames | FunctionDefinition):
+            try:
+                key = self._cache_key_cache[id(inputs.key)]
+            except KeyError:
+                key = CachedEqualityCacheKey(inputs.key, self.equality_comparer)
+                self._cache_key_cache[id(inputs.key)] = key
+        else:
+            key = inputs.key
 
         assert key not in self._input_key_to_result, \
             f"Cache entry is already present for key '{key}'."
 
         try:
+            result_key = self._cache_key_cache[id(result)]
+        except KeyError:
+            result_key = CachedEqualityCacheKey(result, self.equality_comparer)
+            self._cache_key_cache[id(result)] = result_key
+
+        try:
             # The first encountered instance of each distinct result (in terms of
             # "==") gets cached, and subsequent mappings with results that are equal
             # to prior cached results are replaced with the original instance
-            result = self._result_to_cached_result[result]
+            result = self._result_to_cached_result[result_key]
         except KeyError:
             if (
                     self.err_on_created_duplicate
                     and self._is_mapper_created_duplicate(inputs.expr, result)):
                 raise MapperCreatedDuplicateError from None
 
-            self._result_to_cached_result[result] = result
+            self._result_to_cached_result[result_key] = result
 
         self._input_key_to_result[key] = result
         if self.err_on_collision:
@@ -1712,6 +1766,9 @@ class CachedWalkMapper(WalkMapper[P]):
             _visited_functions: set[VisitKeyT] | None = None
             ) -> None:
         super().__init__()
+
+        # FIXME: Cache equality for visit key
+
         self._visited_arrays_or_names: set[VisitKeyT] = set()
 
         self._visited_functions: set[VisitKeyT] = \
@@ -1860,7 +1917,7 @@ class MPMSMaterializerCache(
             ArrayOrNames, MPMSMaterializerAccumulator] = {}
 
         self._is_mapper_created_duplicate = partial(
-            _is_mapper_created_duplicate, equality_comparer=EqualityComparer())
+            _is_mapper_created_duplicate, equality_comparer=self.equality_comparer)
 
     def add(
             self,
@@ -1872,24 +1929,37 @@ class MPMSMaterializerCache(
         Returns the cached result (which may not be identical to *result* if a
         result was already cached with the same result key).
         """
-        key = inputs.key
+        if isinstance(inputs.key, ArrayOrNames | FunctionDefinition):
+            try:
+                key = self._cache_key_cache[id(inputs.key)]
+            except KeyError:
+                key = CachedEqualityCacheKey(inputs.key, self.equality_comparer)
+                self._cache_key_cache[id(inputs.key)] = key
+        else:
+            key = inputs.key
 
         assert key not in self._input_key_to_result, \
             f"Cache entry is already present for key '{key}'."
+
+        try:
+            result_key = self._cache_key_cache[id(result.expr)]
+        except KeyError:
+            result_key = CachedEqualityCacheKey(result.expr, self.equality_comparer)
+            self._cache_key_cache[id(result.expr)] = result_key
 
         try:
             # The first encountered instance of each distinct result (in terms of
             # "==" of result.expr) gets cached, and subsequent mappings with results
             # that are equal to prior cached results are replaced with the original
             # instance
-            result = self._result_key_to_result[result.expr]
+            result = self._result_key_to_result[result_key]
         except KeyError:
             if (
                     self.err_on_created_duplicate
                     and self._is_mapper_created_duplicate(inputs.expr, result.expr)):
                 raise MapperCreatedDuplicateError from None
 
-            self._result_key_to_result[result.expr] = result
+            self._result_key_to_result[result_key] = result
 
         self._input_key_to_result[key] = result
         if self.err_on_collision:
