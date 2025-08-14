@@ -640,6 +640,12 @@ class TransformMapperCache(CachedMapperCache[CacheExprT, CacheExprT, P]):
 
         return result
 
+    @override
+    def clear(self) -> None:
+        """Reset the cache."""
+        super().clear()
+        self._result_to_cached_result = {}
+
 
 class TransformMapper(CachedMapper[ArrayOrNames, FunctionDefinition, []]):
     """Base class for mappers that transform :class:`pytato.array.Array`\\ s into
@@ -1880,6 +1886,12 @@ class MPMSMaterializerCache(
             self._input_key_to_expr[key] = inputs.expr
 
         return result
+
+    @override
+    def clear(self) -> None:
+        """Reset the cache."""
+        super().clear()
+        self._result_key_to_result = {}
 
 
 def _materialize_if_mpms(expr: Array,
