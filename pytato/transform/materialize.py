@@ -189,6 +189,8 @@ def _materialize_if_mpms(expr: Array,
         (pred.materialized_predecessors for pred in predecessors),
         cast("frozenset[Array]", frozenset()))
 
+    n_materialized_predecessors = len(materialized_predecessors)
+
     nsuccessors = 0
     for successor in successors:
         # Handle indexing with heavy reuse, if the sizes are known ahead of time
@@ -200,7 +202,9 @@ def _materialize_if_mpms(expr: Array,
         else:
             nsuccessors += 1
 
-    if nsuccessors > 1 and len(materialized_predecessors) > 1:
+    # Slightly modify the idea of MPMS to also handle smaller subexpressions that
+    # are used many times (i.e., n_materialized_predecessors < 2 but nsuccessors >> 1)
+    if nsuccessors > 1 and n_materialized_predecessors + nsuccessors >= 4:
         new_expr = expr.tagged(ImplStored())
         return MPMSMaterializerAccumulator(frozenset([new_expr]), new_expr)
     else:
@@ -398,7 +402,9 @@ def materialize_with_mpms(expr: ArrayOrNamesTc) -> ArrayOrNamesTc:
 
         - MPMS materialization strategy is a greedy materialization algorithm in
           which any node with more than 1 materialized predecessor and more than
-          1 successor is materialized.
+          1 successor is materialized (or, more precisely, any node with more than 1
+          materialized predecessor and a sum of materialized predecessors and
+          successors of at least 4).
         - Materializing here corresponds to tagging a node with
           :class:`~pytato.tags.ImplStored`.
         - Does not attempt to materialize sub-expressions in
