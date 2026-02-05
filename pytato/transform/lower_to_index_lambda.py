@@ -47,6 +47,7 @@ from pytato.array import (
     BasicIndex,
     Concatenate,
     CSRMatmul,
+    CSRMatrix,
     Einsum,
     IndexExpr,
     IndexLambda,
@@ -712,6 +713,12 @@ class ToIndexLambdaMixin:
                            var_to_reduction_descr=immutabledict(),
                            tags=expr.tags,
                            non_equality_tags=expr.non_equality_tags)
+
+    def map_csr_matrix(self, expr: CSRMatrix) -> IndexLambda:
+        # Should not reach here unless application has done something wrong
+        raise NotImplementedError(
+            "elementwise access into CSRMatrix is not allowed; can only be "
+            "used in conjunction with CSRMatmul.")
 
     def map_csr_matmul(self, expr: CSRMatmul) -> IndexLambda:
         rec_matrix_elem_values = self.rec(expr.matrix.elem_values)

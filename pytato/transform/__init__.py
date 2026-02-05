@@ -56,6 +56,7 @@ from pytato.array import (
     BasicIndex,
     Concatenate,
     CSRMatmul,
+    CSRMatrix,
     DataInterface,
     DataWrapper,
     DictOfNamedArrays,
@@ -902,24 +903,20 @@ class CopyMapper(TransformMapper):
         new_args = tuple(_verify_is_array(self.rec(arg)) for arg in expr.args)
         return expr.replace_if_different(args=new_args)
 
+    def map_csr_matrix(self, expr: CSRMatrix) -> Array:
+        new_elem_values = _verify_is_array(
+            self.rec(expr.elem_values))
+        new_elem_col_indices = _verify_is_array(
+            self.rec(expr.elem_col_indices))
+        new_row_starts = _verify_is_array(
+            self.rec(expr.row_starts))
+        return expr.replace_if_different(
+            elem_values=new_elem_values,
+            elem_col_indices=new_elem_col_indices,
+            row_starts=new_row_starts)
+
     def map_csr_matmul(self, expr: CSRMatmul) -> Array:
-        new_matrix_elem_values = _verify_is_array(
-            self.rec(expr.matrix.elem_values))
-        new_matrix_elem_col_indices = _verify_is_array(
-            self.rec(expr.matrix.elem_col_indices))
-        new_matrix_row_starts = _verify_is_array(
-            self.rec(expr.matrix.row_starts))
-        if (
-                new_matrix_elem_values is not expr.matrix.elem_values
-                or new_matrix_elem_col_indices is not expr.matrix.elem_col_indices
-                or new_matrix_row_starts is not expr.matrix.row_starts):
-            new_matrix = dataclasses.replace(
-                expr.matrix,
-                elem_values=new_matrix_elem_values,
-                elem_col_indices=new_matrix_elem_col_indices,
-                row_starts=new_matrix_row_starts)
-        else:
-            new_matrix = expr.matrix
+        new_matrix = _verify_is_array(self.rec(expr.matrix))
         new_array = _verify_is_array(self.rec(expr.array))
         return expr.replace_if_different(
             matrix=new_matrix,
@@ -1095,25 +1092,22 @@ class CopyMapperWithExtraArgs(TransformMapperWithExtraArgs[P]):
             _verify_is_array(self.rec(arg, *args, **kwargs)) for arg in expr.args)
         return expr.replace_if_different(args=new_args)
 
+    def map_csr_matrix(
+            self, expr: CSRMatrix, *args: P.args, **kwargs: P.kwargs) -> Array:
+        new_elem_values = _verify_is_array(
+            self.rec(expr.elem_values, *args, **kwargs))
+        new_elem_col_indices = _verify_is_array(
+            self.rec(expr.elem_col_indices, *args, **kwargs))
+        new_row_starts = _verify_is_array(
+            self.rec(expr.row_starts, *args, **kwargs))
+        return expr.replace_if_different(
+            elem_values=new_elem_values,
+            elem_col_indices=new_elem_col_indices,
+            row_starts=new_row_starts)
+
     def map_csr_matmul(
             self, expr: CSRMatmul, *args: P.args, **kwargs: P.kwargs) -> Array:
-        new_matrix_elem_values = _verify_is_array(
-            self.rec(expr.matrix.elem_values, *args, **kwargs))
-        new_matrix_elem_col_indices = _verify_is_array(
-            self.rec(expr.matrix.elem_col_indices, *args, **kwargs))
-        new_matrix_row_starts = _verify_is_array(
-            self.rec(expr.matrix.row_starts, *args, **kwargs))
-        if (
-                new_matrix_elem_values is not expr.matrix.elem_values
-                or new_matrix_elem_col_indices is not expr.matrix.elem_col_indices
-                or new_matrix_row_starts is not expr.matrix.row_starts):
-            new_matrix = dataclasses.replace(
-                expr.matrix,
-                elem_values=new_matrix_elem_values,
-                elem_col_indices=new_matrix_elem_col_indices,
-                row_starts=new_matrix_row_starts)
-        else:
-            new_matrix = expr.matrix
+        new_matrix = _verify_is_array(self.rec(expr.matrix, *args, **kwargs))
         new_array = _verify_is_array(self.rec(expr.array, *args, **kwargs))
         return expr.replace_if_different(
             matrix=new_matrix,
@@ -1308,11 +1302,15 @@ class CombineMapper(CachedMapper[ResultT, FunctionResultT, []]):
         return self.combine(*(self.rec(ary)
                               for ary in expr.args))
 
+    def map_csr_matrix(self, expr: CSRMatrix) -> ResultT:
+        return self.combine(
+            self.rec(expr.elem_values),
+            self.rec(expr.elem_col_indices),
+            self.rec(expr.row_starts))
+
     def map_csr_matmul(self, expr: CSRMatmul) -> ResultT:
         return self.combine(
-            self.rec(expr.matrix.elem_values),
-            self.rec(expr.matrix.elem_col_indices),
-            self.rec(expr.matrix.row_starts),
+            self.rec(expr.matrix),
             self.rec(expr.array))
 
     def map_named_array(self, expr: NamedArray) -> ResultT:
@@ -1415,6 +1413,10 @@ class DependencyMapper(CombineMapper[R, Never]):
     @override
     def map_einsum(self, expr: Einsum) -> R:
         return self.combine(frozenset([expr]), super().map_einsum(expr))
+
+    @override
+    def map_csr_matrix(self, expr: CSRMatrix) -> R:
+        return self.combine(frozenset([expr]), super().map_csr_matrix(expr))
 
     @override
     def map_csr_matmul(self, expr: CSRMatmul) -> R:
@@ -1682,14 +1684,23 @@ class WalkMapper(Mapper[None, None, P]):
 
         self.post_visit(expr, *args, **kwargs)
 
+    def map_csr_matrix(
+            self, expr: CSRMatrix, *args: P.args, **kwargs: P.kwargs) -> None:
+        if not self.visit(expr, *args, **kwargs):
+            return
+
+        self.rec(expr.elem_values, *args, **kwargs)
+        self.rec(expr.elem_col_indices, *args, **kwargs)
+        self.rec(expr.row_starts, *args, **kwargs)
+
+        self.post_visit(expr, *args, **kwargs)
+
     def map_csr_matmul(
             self, expr: CSRMatmul, *args: P.args, **kwargs: P.kwargs) -> None:
         if not self.visit(expr, *args, **kwargs):
             return
 
-        self.rec(expr.matrix.elem_values, *args, **kwargs)
-        self.rec(expr.matrix.elem_col_indices, *args, **kwargs)
-        self.rec(expr.matrix.row_starts, *args, **kwargs)
+        self.rec(expr.matrix, *args, **kwargs)
         self.rec(expr.array, *args, **kwargs)
 
         self.post_visit(expr, *args, **kwargs)
@@ -2071,14 +2082,21 @@ class UsersCollector(CachedMapper[None, Never, []]):
 
         self.rec_idx_or_size_tuple(expr, expr.shape)
 
-    def map_csr_matmul(self, expr: CSRMatmul) -> None:
+    def map_csr_matrix(self, expr: CSRMatrix) -> None:
         for child in (
-                expr.matrix.elem_values,
-                expr.matrix.elem_col_indices,
-                expr.matrix.row_starts,
-                expr.array):
+                expr.elem_values,
+                expr.elem_col_indices,
+                expr.row_starts):
             self.node_to_users.setdefault(child, set()).add(expr)
             self.rec(child)
+
+        self.rec_idx_or_size_tuple(expr, expr.shape)
+
+    def map_csr_matmul(self, expr: CSRMatmul) -> None:
+        self.node_to_users.setdefault(expr.matrix, set()).add(expr)
+        self.rec(expr.matrix)
+        self.node_to_users.setdefault(expr.array, set()).add(expr)
+        self.rec(expr.array)
 
         self.rec_idx_or_size_tuple(expr, expr.shape)
 

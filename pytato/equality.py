@@ -36,6 +36,7 @@ from pytato.array import (
     BasicIndex,
     Concatenate,
     CSRMatmul,
+    CSRMatrix,
     DataWrapper,
     DictOfNamedArrays,
     Einsum,
@@ -242,11 +243,15 @@ class EqualityComparer:
                 and expr1.redn_axis_to_redn_descr == expr2.redn_axis_to_redn_descr
                 )
 
+    def map_csr_matrix(self, expr1: CSRMatrix, expr2: CSRMatrix) -> bool:
+        return (self.rec(expr1.elem_values, expr2.elem_values)
+                and self.rec(expr1.elem_col_indices, expr2.elem_col_indices)
+                and self.rec(expr1.row_starts, expr2.row_starts)
+                and expr1.tags == expr2.tags
+                and expr1.axes == expr2.axes)
+
     def map_csr_matmul(self, expr1: CSRMatmul, expr2: CSRMatmul) -> bool:
-        return (self.rec(expr1.matrix.elem_values, expr2.matrix.elem_values)
-                and self.rec(
-                    expr1.matrix.elem_col_indices, expr2.matrix.elem_col_indices)
-                and self.rec(expr1.matrix.row_starts, expr2.matrix.row_starts)
+        return (self.rec(expr1.matrix, expr2.matrix)
                 and self.rec(expr1.array, expr2.array)
                 and expr1.tags == expr2.tags
                 and expr1.axes == expr2.axes)

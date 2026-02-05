@@ -69,6 +69,7 @@ from pytato.array import (
     BasicIndex,
     Concatenate,
     CSRMatmul,
+    CSRMatrix,
     DictOfNamedArrays,
     Einsum,
     EinsumReductionAxis,
@@ -392,6 +393,12 @@ class AxesTagsEquationCollector(Mapper[None, Never, []]):
             self.rec(arg)
         self.add_equations_using_index_lambda_version_of_expr(expr)
 
+    def map_csr_matrix(self, expr: CSRMatrix) -> None:
+        # Should not reach here unless application has done something wrong
+        raise NotImplementedError(
+            "elementwise access into CSRMatrix is not allowed; can only be "
+            "used in conjunction with CSRMatmul.")
+
     def map_csr_matmul(self, expr: CSRMatmul) -> None:
         for ary in (
                 expr.matrix.elem_values,
@@ -400,6 +407,12 @@ class AxesTagsEquationCollector(Mapper[None, Never, []]):
                 expr.array):
             self.rec(ary)
         self.add_equations_using_index_lambda_version_of_expr(expr)
+        self.record_equation(
+            self.get_var_for_axis(expr.matrix, 1),
+            self.get_var_for_axis(expr.array, 0))
+        self.record_equation(
+            self.get_var_for_axis(expr.matrix, 0),
+            self.get_var_for_axis(expr, 0))
 
     def map_dict_of_named_arrays(self, expr: DictOfNamedArrays) -> None:
         for _, subexpr in sorted(expr._data.items()):

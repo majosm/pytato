@@ -48,6 +48,7 @@ from pytato.array import (
     AxisPermutation,
     Concatenate,
     CSRMatmul,
+    CSRMatrix,
     DataInterface,
     DataWrapper,
     DictOfNamedArrays,
@@ -528,6 +529,9 @@ class NumpyCodegenMapper(CachedMapper[str, Never, []]):
                        )
 
         return self._record_line_and_return_lhs(lhs, rhs)
+
+    def map_csr_matrix(self, expr: CSRMatrix) -> str:
+        raise NotImplementedError("CSRMatrix not yet supported in numpy-like targets.")
 
     def map_csr_matmul(self, expr: CSRMatmul) -> str:
         raise NotImplementedError("CSRMatmul not yet supported in numpy-like targets.")

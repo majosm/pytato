@@ -46,6 +46,7 @@ from pytato.array import (
     AxisPermutation,
     Concatenate,
     CSRMatmul,
+    CSRMatrix,
     Einsum,
     EinsumAxisDescriptor,
     EinsumReductionAxis,
@@ -275,26 +276,25 @@ class EinsumDistributiveLawMapper(
 
             return _wrap_einsum_from_ctx(rec_expr, ctx)
 
+    def map_csr_matrix(self,
+                       expr: CSRMatrix,
+                       ctx: _EinsumDistributiveLawMapperContext | None) -> Array:
+        rec_elem_values = _verify_is_array(
+            self.rec(expr.elem_values, None))
+        rec_elem_col_indices = _verify_is_array(
+            self.rec(expr.elem_col_indices, None))
+        rec_row_starts = _verify_is_array(
+            self.rec(expr.row_starts, None))
+        rec_expr = expr.replace_if_different(
+            elem_values=rec_elem_values,
+            elem_col_indices=rec_elem_col_indices,
+            row_starts=rec_row_starts)
+        return _wrap_einsum_from_ctx(rec_expr, ctx)
+
     def map_csr_matmul(self,
                        expr: CSRMatmul,
                        ctx: _EinsumDistributiveLawMapperContext | None) -> Array:
-        rec_matrix_elem_values = _verify_is_array(
-            self.rec(expr.matrix.elem_values, None))
-        rec_matrix_elem_col_indices = _verify_is_array(
-            self.rec(expr.matrix.elem_col_indices, None))
-        rec_matrix_row_starts = _verify_is_array(
-            self.rec(expr.matrix.row_starts, None))
-        if (
-                rec_matrix_elem_values is not expr.matrix.elem_values
-                or rec_matrix_elem_col_indices is not expr.matrix.elem_col_indices
-                or rec_matrix_row_starts is not expr.matrix.row_starts):
-            rec_matrix = dataclasses.replace(
-                expr.matrix,
-                elem_values=rec_matrix_elem_values,
-                elem_col_indices=rec_matrix_elem_col_indices,
-                row_starts=rec_matrix_row_starts)
-        else:
-            rec_matrix = expr.matrix
+        rec_matrix = _verify_is_array(self.rec(expr.matrix, None))
         rec_array = _verify_is_array(self.rec(expr.array, None))
         rec_expr = expr.replace_if_different(
             matrix=rec_matrix,

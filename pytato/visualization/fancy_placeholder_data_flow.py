@@ -18,6 +18,7 @@ from pytato.array import (
     Array,
     Concatenate,
     CSRMatmul,
+    CSRMatrix,
     DataWrapper,
     DictOfNamedArrays,
     Einsum,
@@ -179,6 +180,12 @@ class FancyDotWriter(CachedMapper[_FancyDotWriterNode, Never, []]):
             self.edges.update(new_edges)
 
         return ret_node
+
+    def map_csr_matrix(self, expr: CSRMatrix) -> _FancyDotWriterNode:
+        # Should not reach here unless application has done something wrong
+        raise NotImplementedError(
+            "elementwise access into CSRMatrix is not allowed; can only be "
+            "used in conjunction with CSRMatmul.")
 
     def map_csr_matmul(self, expr: CSRMatmul) -> _FancyDotWriterNode:
         node_id = self.vng("_pt_sparse_matmul")

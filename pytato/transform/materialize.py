@@ -44,6 +44,7 @@ from pytato.array import (
     BasicIndex,
     Concatenate,
     CSRMatmul,
+    CSRMatrix,
     DataWrapper,
     DictOfNamedArrays,
     Einsum,
@@ -369,21 +370,20 @@ class MPMSMaterializer(
             self.successors[expr],
             rec_args)
 
+    def map_csr_matrix(self, expr: CSRMatrix) -> MPMSMaterializerAccumulator:
+        # Should not reach here unless application has done something wrong
+        raise NotImplementedError(
+            "elementwise access into CSRMatrix is not allowed; can only be "
+            "used in conjunction with CSRMatmul.")
+
     def map_csr_matmul(self, expr: CSRMatmul) -> MPMSMaterializerAccumulator:
         rec_matrix_elem_values = self.rec(expr.matrix.elem_values)
         rec_matrix_elem_col_indices = self.rec(expr.matrix.elem_col_indices)
         rec_matrix_row_starts = self.rec(expr.matrix.row_starts)
-        if (
-                rec_matrix_elem_values.expr is not expr.matrix.elem_values
-                or rec_matrix_elem_col_indices.expr is not expr.matrix.elem_col_indices
-                or rec_matrix_row_starts.expr is not expr.matrix.row_starts):
-            new_matrix = dataclasses.replace(
-                expr.matrix,
-                elem_values=rec_matrix_elem_values.expr,
-                elem_col_indices=rec_matrix_elem_col_indices.expr,
-                row_starts=rec_matrix_row_starts.expr)
-        else:
-            new_matrix = expr.matrix
+        new_matrix = expr.matrix.replace_if_different(
+            elem_values=rec_matrix_elem_values.expr,
+            elem_col_indices=rec_matrix_elem_col_indices.expr,
+            row_starts=rec_matrix_row_starts.expr)
         rec_array = self.rec(expr.array)
         return _materialize_if_mpms(
             expr.replace_if_different(

@@ -2231,13 +2231,14 @@ class SizeParam(
 
 # {{{ sparse matrix multiply
 
-@opt_frozen_dataclass(eq=False, repr=False)
-class SparseMatrix(_SuppliedAxesAndTagsMixin, _SuppliedShapeAndDtypeMixin, ABC):
+@array_dataclass()
+class SparseMatrix(_SuppliedAxesAndTagsMixin, Array, ABC):
     """
     Abstract base class for sparse matrices.
 
     .. automethod:: __matmul__
     """
+    @override
     def __matmul__(self, other: Array) -> SparseMatmul:
         return sparse_matmul(self, other)
 
@@ -2279,7 +2280,7 @@ class SparseMatmul(_SuppliedAxesAndTagsMixin, Array, ABC):
         return self._get_dtype()
 
 
-@opt_frozen_dataclass(eq=False, repr=False)
+@array_dataclass()
 class CSRMatrix(SparseMatrix):
     """
     A sparse matrix in compressed sparse row (CSR) format.
@@ -2300,9 +2301,20 @@ class CSRMatrix(SparseMatrix):
         starting index in *elem_values* and *elem_col_indices* for the given row,
         with the last entry being equal to `nrows`.
     """
+    _shape: ShapeType
     elem_values: Array
     elem_col_indices: Array
     row_starts: Array
+
+    @property
+    @override
+    def shape(self) -> ShapeType:
+        return self._shape
+
+    @property
+    @override
+    def dtype(self) -> ShapeType:
+        return self.elem_values.dtype
 
 
 @array_dataclass()
@@ -2776,11 +2788,10 @@ def make_csr_matrix(shape: ConvertibleToShape,
             "'row_starts' must have length equal to the number of rows plus one.")
 
     return CSRMatrix(
-        shape=shape,
+        _shape=shape,
         elem_values=elem_values,
         elem_col_indices=elem_col_indices,
         row_starts=row_starts,
-        dtype=dtype,
         axes=axes,
         tags=(tags | _get_default_tags()),
         non_equality_tags=_get_created_at_tag(),)

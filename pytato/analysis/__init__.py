@@ -39,6 +39,7 @@ from pytato.array import (
     Array,
     Concatenate,
     CSRMatmul,
+    CSRMatrix,
     DictOfNamedArrays,
     Einsum,
     IndexBase,
@@ -149,14 +150,25 @@ class ListOfUsersCollector(Mapper[None, None, []]):
                 self.array_to_users[dim].append(expr)
                 self.rec(dim)
 
-    def map_csr_matmul(self, expr: CSRMatmul) -> None:
+    def map_csr_matrix(self, expr: CSRMatrix) -> None:
         for ary in (
-                expr.matrix.elem_values,
-                expr.matrix.elem_col_indices,
-                expr.matrix.row_starts,
-                expr.array):
+                expr.elem_values,
+                expr.elem_col_indices,
+                expr.row_starts):
             self.array_to_users[ary].append(expr)
             self.rec(ary)
+
+        for dim in expr.shape:
+            if isinstance(dim, Array):
+                self.array_to_users[dim].append(expr)
+                self.rec(dim)
+
+    def map_csr_matmul(self, expr: CSRMatmul) -> None:
+        self.array_to_users[expr.matrix].append(expr)
+        self.rec(expr.matrix)
+
+        self.array_to_users[expr.array].append(expr)
+        self.rec(expr.array)
 
         for dim in expr.shape:
             if isinstance(dim, Array):
@@ -386,12 +398,17 @@ class ListOfDirectPredecessorsGetter(
     def map_einsum(self, expr: Einsum) -> list[ArrayOrNames]:
         return self._get_preds_from_shape(expr.shape) + list(expr.args)
 
+    def map_csr_matrix(self, expr: CSRMatrix) -> list[ArrayOrNames]:
+        return [
+            *self._get_preds_from_shape(expr.shape),
+            expr.elem_values,
+            expr.elem_col_indices,
+            expr.row_starts]
+
     def map_csr_matmul(self, expr: CSRMatmul) -> list[ArrayOrNames]:
         return [
             *self._get_preds_from_shape(expr.shape),
-            expr.matrix.elem_values,
-            expr.matrix.elem_col_indices,
-            expr.matrix.row_starts,
+            expr.matrix,
             expr.array]
 
     def map_loopy_call(self, expr: LoopyCall) -> list[ArrayOrNames]:

@@ -42,6 +42,7 @@ from pytato.array import (
     AbstractResultWithNamedArrays,
     Array,
     CSRMatmul,
+    CSRMatrix,
     DataWrapper,
     DictOfNamedArrays,
     Einsum,
@@ -298,22 +299,30 @@ class ArrayToDotNodeInfoMapper(CachedMapper[None, None, []]):
 
         self.node_to_dot[expr] = info
 
+    def map_csr_matrix(self, expr: CSRMatrix) -> None:
+        info = self.get_common_dot_info(expr)
+
+        self.rec(expr.elem_values)
+        info.edges["elem_values"] = expr.elem_values
+
+        self.rec(expr.elem_col_indices)
+        info.edges["elem_col_indices"] = expr.elem_col_indices
+
+        self.rec(expr.row_starts)
+        info.edges["row_starts"] = expr.row_starts
+
+        info.fields["shape"] = stringify_shape(expr.shape)
+
+        self.node_to_dot[expr] = info
+
     def map_csr_matmul(self, expr: CSRMatmul) -> None:
         info = self.get_common_dot_info(expr)
 
-        self.rec(expr.matrix.elem_values)
-        info.edges["matrix.elem_values"] = expr.matrix.elem_values
-
-        self.rec(expr.matrix.elem_col_indices)
-        info.edges["matrix.elem_col_indices"] = expr.matrix.elem_col_indices
-
-        self.rec(expr.matrix.row_starts)
-        info.edges["matrix.row_starts"] = expr.matrix.row_starts
+        self.rec(expr.matrix)
+        info.edges["matrix"] = expr.matrix
 
         self.rec(expr.array)
         info.edges["array"] = expr.array
-
-        info.fields["matrix_shape"] = stringify_shape(expr.matrix.shape)
 
         self.node_to_dot[expr] = info
 
