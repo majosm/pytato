@@ -427,9 +427,23 @@ class AxisTagAttacher(CopyMapper):
 
         result = rec_expr
 
+        def check_tags(
+                    tags: Collection[Tag],
+                    expr: Array,
+                    iaxis_or_redn_var: int | str,
+                ) -> None:
+            if not tags:
+                print(
+                    f"unable to tag axis {iaxis_or_redn_var} of expression of "
+                    f"type {type(expr).__name__}, created at:")
+                print(f"{next(iter(expr.non_equality_tags))}")
+                print("")
+
         for iaxis in range(expr.ndim):
+            tags = self.axis_to_tags.get((expr, iaxis), [])
+            check_tags(tags, expr, iaxis)
             result = result.with_tagged_axis(
-                iaxis, self.axis_to_tags.get((expr, iaxis), []))
+                iaxis, tags)
 
         # {{{ tag reduction descrs
 
