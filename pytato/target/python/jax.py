@@ -26,10 +26,16 @@ THE SOFTWARE.
 """
 
 import ast
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
+
+from pytools import UniqueNameGenerator
 
 from pytato.target.python import BoundJAXPythonProgram, JAXPythonTarget
-from pytato.target.python.numpy_like import generate_numpy_like
+from pytato.target.python.numpy_like import (
+    generate_numpy_like,
+    NumpyCodegenMapper,
+    _constant,
+)
 
 
 if TYPE_CHECKING:
@@ -41,6 +47,23 @@ if TYPE_CHECKING:
 __doc__ = """
 .. autofunction:: generate_jax
 """
+
+
+class JAXCodegenMapper(NumpyCodegenMapper):
+    @override
+    def map_csr_matmul(self, expr: CSRMatmul) -> str:
+        lhs = self.vng("_pt_tmp")
+        rhs = ast.Call(
+            ast.Attribute(ast.Name("jax.experimental.sparse"), "csr_matvec"),
+            args=[
+                self.rec(expr.matrix.elem_values),
+                self.rec(expr.matrix.elem_col_indices),
+                self.rec(expr.matrix.row_starts),
+                self.rec(expr.array)],
+           keywords=[
+                ast.keyword(
+                    "shape", ast.Tuple(elts=[_constant(d) for d in expr.shape]))])
+        return self._record_line_and_return_lhs(lhs, rhs)
 
 
 def generate_jax(expr: Array | Mapping[str, Array] | DictOfNamedArrays,
@@ -74,9 +97,15 @@ def generate_jax(expr: Array | Mapping[str, Array] | DictOfNamedArrays,
                                               level=0))
         decorators.append("_pt_jax_jit")
 
+    cgen_mapper = JAXCodegenMapper(
+        numpy_backend=target.numpy_like_module_name_shorthand,
+        numpy="np",
+        vng=UniqueNameGenerator())
+
     return generate_numpy_like(expr, target=target,  # type: ignore[return-value]
                                function_name=function_name,
                                show_code=show_code,
                                extra_preambles=tuple(extra_preambles),
                                entrypoint_decorators=tuple(decorators),
-                               colorize_show_code=colorize_show_code)
+                               colorize_show_code=colorize_show_code,
+                               cgen_mapper=cgen_mapper)

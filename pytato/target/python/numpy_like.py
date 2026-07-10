@@ -530,7 +530,8 @@ class NumpyCodegenMapper(CachedMapper[str, Never, []]):
         return self._record_line_and_return_lhs(lhs, rhs)
 
     def map_csr_matmul(self, expr: CSRMatmul) -> str:
-        raise NotImplementedError("CSRMatmul not yet supported in numpy-like targets.")
+        raise NotImplementedError(
+            "CSRMatmul code generation must be implemented for each target.")
 
     def map_reshape(self, expr: Reshape) -> str:
         lhs = self.vng("_pt_tmp")
@@ -570,6 +571,7 @@ def generate_numpy_like(expr: Array | Mapping[str, Array] | DictOfNamedArrays,
                         entrypoint_decorators: tuple[str, ...],
                         extra_preambles: tuple[ast.stmt, ...],
                         colorize_show_code: bool | None = None,
+                        cgen_mapper: NumpyCodegenMapper | None = None,
                         ) -> BoundPythonProgram:
 
     from pytato.transform import InputGatherer
@@ -581,7 +583,13 @@ def generate_numpy_like(expr: Array | Mapping[str, Array] | DictOfNamedArrays,
 
     assert isinstance(expr, Array | DictOfNamedArrays)
 
-    var_name_gen = UniqueNameGenerator()
+    if cgen_mapper is None:
+        cgen_mapper = NumpyCodegenMapper(
+            numpy_backend=target.numpy_like_module_name_shorthand,
+            numpy="np",
+            vng=UniqueNameGenerator())
+
+    var_name_gen = cgen_mapper.vng
 
     var_name_gen.add_names({input_expr.name
                             for input_expr in InputGatherer()(expr)
@@ -595,10 +603,6 @@ def generate_numpy_like(expr: Array | Mapping[str, Array] | DictOfNamedArrays,
                             "np",
                             function_name})
 
-    cgen_mapper = NumpyCodegenMapper(
-        numpy_backend=target.numpy_like_module_name_shorthand,
-        numpy="np",
-        vng=var_name_gen)
     result_var = cgen_mapper(expr)
 
     lines = cgen_mapper.lines
