@@ -41,7 +41,7 @@ from pytato.target.python.numpy_like import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from pytato.array import Array, DictOfNamedArrays
+    from pytato.array import Array, CSRMatmul, DictOfNamedArrays
 
 
 __doc__ = """
@@ -53,16 +53,21 @@ class JAXCodegenMapper(NumpyCodegenMapper):
     @override
     def map_csr_matmul(self, expr: CSRMatmul) -> str:
         lhs = self.vng("_pt_tmp")
-        rhs = ast.Call(
-            ast.Attribute(ast.Name("jax.experimental.sparse"), "csr_matvec"),
+        matrix = ast.Call(
+            ast.Attribute(ast.Name("_pt_jax_sparse"), "CSR"),
             args=[
-                self.rec(expr.matrix.elem_values),
-                self.rec(expr.matrix.elem_col_indices),
-                self.rec(expr.matrix.row_starts),
-                self.rec(expr.array)],
-           keywords=[
+                ast.Tuple(elts=[
+                    ast.Name(self.rec(expr.matrix.elem_values)),
+                    ast.Name(self.rec(expr.matrix.elem_col_indices)),
+                    ast.Name(self.rec(expr.matrix.row_starts))])],
+            keywords=[
                 ast.keyword(
-                    "shape", ast.Tuple(elts=[_constant(d) for d in expr.shape]))])
+                    "shape",
+                    ast.Tuple(elts=[
+                        _constant(d) for d in expr.matrix.shape]))])
+        rhs = ast.BinOp(
+            left=matrix, op=ast.MatMult(),
+            right=ast.Name(self.rec(expr.array)))
         return self._record_line_and_return_lhs(lhs, rhs)
 
 
@@ -86,7 +91,9 @@ def generate_jax(expr: Array | Mapping[str, Array] | DictOfNamedArrays,
     if target is None:
         target = JAXPythonTarget()
 
-    extra_preambles = []
+    extra_preambles = [
+        ast.Import(names=[ast.alias(name="jax.experimental.sparse",
+                                    asname="_pt_jax_sparse")])]
     decorators = []
 
     if jit:
